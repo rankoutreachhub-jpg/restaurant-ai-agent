@@ -7,7 +7,6 @@ Run this with:
 from inside the backend/ folder.
 """
 
-import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -15,13 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models, config
 from .database import engine, SessionLocal
+from .logging_config import configure_logging
 from .routers import chat, admin
 from .seed_data import seed_if_empty
 
-# So errors logged with logger.exception() (see routers/chat.py) show up
-# with a timestamp and level on the server console, instead of relying on
-# Python's bare last-resort stderr handler.
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# Console + rotating log file for errors and important events (see
+# app/logging_config.py) — set up before anything else logs, so nothing
+# is missed.
+configure_logging()
 
 config.validate_config()
 

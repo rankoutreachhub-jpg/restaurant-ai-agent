@@ -22,12 +22,15 @@ client has switched over — then remove ADMIN_API_KEY_PREVIOUS to fully
 revoke the old key. See README.md for the full rotation procedure.
 """
 
+import logging
 import secrets
 
-from fastapi import HTTPException, Security, status
+from fastapi import HTTPException, Request, Security, status
 from fastapi.security import APIKeyHeader
 
 from . import config
+
+logger = logging.getLogger(__name__)
 
 _api_key_header = APIKeyHeader(name="X-Admin-API-Key", auto_error=False)
 
@@ -48,9 +51,17 @@ def _matches_configured_key(api_key: str) -> bool:
     return False
 
 
-def verify_admin_key(api_key: str = Security(_api_key_header)) -> None:
+def verify_admin_key(request: Request, api_key: str = Security(_api_key_header)) -> None:
     """FastAPI dependency: raises 401 unless a valid admin key was supplied."""
     if not api_key or not _matches_configured_key(api_key):
+        # Log the fact of a rejected attempt (client + path) as a
+        # security-relevant event — never the submitted key value itself.
+        client = request.client.host if request.client else "unknown"
+        logger.warning(
+            "Admin authentication failed (client=%s path=%s)",
+            client,
+            request.url.path,
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid admin API key. Include a valid key in "

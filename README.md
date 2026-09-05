@@ -262,6 +262,42 @@ disallowed origin gets `400 Bad Request`.
 
 ---
 
+### Application logging
+
+Errors and important events are logged to **both** the console and a
+rotating log file at `backend/logs/app.log` (created automatically on
+first run — set `LOG_DIR` in `.env` to use a different location). Every
+line has a timestamp, level, and logger name, e.g.:
+
+```
+2026-01-15 09:12:03,441 WARNING app.auth: Admin authentication failed (client=203.0.113.7 path=/admin/restaurant/1)
+2026-01-15 09:14:20,118 ERROR app.routers.chat: Unhandled error while generating a chat reply
+2026-01-15 09:20:44,902 WARNING app.rate_limit: Rate limit exceeded (limiter=chat client=203.0.113.7 path=/chat)
+```
+
+What's logged: unhandled `/chat` errors (with the real exception detail
+— the client only ever sees a generic message, per the "Chat input
+limits"-adjacent error handling above), rejected admin authentication
+attempts, rate-limit throttling, and restaurant-data seeding at startup.
+
+**What's deliberately never logged:** `GEMINI_API_KEY`, `ADMIN_API_KEY`
+/ `ADMIN_API_KEY_PREVIOUS`, the `X-Admin-API-Key` header value (valid
+*or* invalid — a rejected admin request logs only the client IP and
+path, never the key that was tried), full request/response bodies, or
+customer chat message content.
+
+**Rotation:** once `app.log` reaches ~1 MB, it's renamed `app.log.1`
+(and any existing `app.log.1` → `app.log.2`, etc.), and a fresh
+`app.log` is started. Up to 5 rotated backups are kept
+(`app.log.1`–`app.log.5`); older ones are deleted automatically. This
+bounds disk usage without needing an external log-shipping service —
+enough for this MVP's single-instance deployment.
+
+`backend/logs/` is listed in `.gitignore` — log files are generated
+locally and are never committed.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -341,6 +377,8 @@ Menu items: 11
 - [ ] Sending a `/chat` message over 2000 characters, or with more than 40 history entries, returns `422 Unprocessable Entity`
 - [ ] A CORS preflight request from an origin not in `ALLOWED_ORIGINS` returns `400 Bad Request`
 - [ ] A CORS preflight request from an origin in `ALLOWED_ORIGINS` (or `null`, for the file-opened frontend) succeeds with the matching `Access-Control-Allow-Origin` header
+- [ ] `backend/logs/app.log` is created after the server starts, and its lines have a timestamp, level, and logger name
+- [ ] A failed `/admin/*` auth attempt is logged (client + path) without the submitted key ever appearing in `app.log`
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database

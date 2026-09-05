@@ -72,6 +72,12 @@ ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
+# Directory for the rotating application log file (see
+# app/logging_config.py). Defaults to backend/logs/, absolute for the
+# same reason DATABASE_URL is: it should land in the same place no
+# matter which folder the server was launched from.
+LOG_DIR = Path(os.getenv("LOG_DIR", str(BACKEND_DIR / "logs"))).resolve()
+
 
 def validate_config():
     """

@@ -11,13 +11,18 @@ This only runs once: if the restaurants table already has data, it
 does nothing, so restarting the server won't duplicate rows.
 """
 
+import logging
+
 from sqlalchemy.orm import Session
 from . import models
+
+logger = logging.getLogger(__name__)
 
 
 def seed_if_empty(db: Session):
     existing = db.query(models.Restaurant).first()
     if existing:
+        logger.info("Restaurant data already present; skipping seed.")
         return  # Already seeded, do nothing
 
     restaurant = models.Restaurant(
@@ -94,3 +99,4 @@ def seed_if_empty(db: Session):
         ))
 
     db.commit()
+    logger.info("Seeded initial restaurant data (%s).", restaurant.name)

@@ -21,20 +21,24 @@ this MVP's single-process deployment; a shared store (e.g. Redis) would
 be needed to enforce a true global limit across multiple processes.
 """
 
+import logging
 import time
 from collections import defaultdict
 from threading import Lock
 
 from fastapi import HTTPException, Request, status
 
+logger = logging.getLogger(__name__)
+
 
 class RateLimiter:
     """FastAPI dependency: raises 429 once a client exceeds max_requests
     within a rolling window_seconds, identified by client IP."""
 
-    def __init__(self, max_requests: int, window_seconds: int):
+    def __init__(self, max_requests: int, window_seconds: int, name: str):
         self.max_requests = max_requests
         self.window_seconds = window_seconds
+        self.name = name
         self._hits: dict[str, list[float]] = defaultdict(list)
         self._lock = Lock()
 
@@ -60,6 +64,14 @@ class RateLimiter:
                 hits.pop(0)
 
             if len(hits) >= self.max_requests:
+                # Log the fact of the throttle (limiter, client, path) as a
+                # security/abuse-relevant event — never any header or body.
+                logger.warning(
+                    "Rate limit exceeded (limiter=%s client=%s path=%s)",
+                    self.name,
+                    key,
+                    request.url.path,
+                )
                 raise HTTPException(
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"Rate limit exceeded: max {self.max_requests} requests "
@@ -72,9 +84,9 @@ class RateLimiter:
 
 # 10 messages/minute per IP: generous for a real conversation, tight
 # enough to stop a script from running up the Gemini bill.
-chat_rate_limiter = RateLimiter(max_requests=10, window_seconds=60)
+chat_rate_limiter = RateLimiter(max_requests=10, window_seconds=60, name="chat")
 
 # 30 requests/minute per IP across all /admin/* routes: a real admin
 # doing bulk edits won't hit this, but it bounds brute-force/flood
 # attempts against the admin API key.
-admin_rate_limiter = RateLimiter(max_requests=30, window_seconds=60)
+admin_rate_limiter = RateLimiter(max_requests=30, window_seconds=60, name="admin")

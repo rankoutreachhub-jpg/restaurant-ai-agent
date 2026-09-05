@@ -12,6 +12,9 @@ env/
 # Database file (generated locally, don't commit)
 backend/restaurant.db
 
+# Application logs (generated locally, don't commit — see app/logging_config.py)
+backend/logs/
+
 # OS/editor junk
 .DS_Store
 .vscode/
