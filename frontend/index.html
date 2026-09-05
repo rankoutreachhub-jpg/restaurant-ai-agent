@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Kings Arms - Chat</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2efe9;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+  }
+  #chat-container {
+    width: 100%;
+    max-width: 420px;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    height: 600px;
+    overflow: hidden;
+  }
+  #chat-header {
+    background: #7a2e2e;
+    color: #fff;
+    padding: 16px;
+    font-weight: 600;
+    font-size: 16px;
+  }
+  #chat-header small {
+    display: block;
+    font-weight: 400;
+    opacity: 0.85;
+    font-size: 12px;
+    margin-top: 2px;
+  }
+  #messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .msg {
+    max-width: 80%;
+    padding: 10px 14px;
+    border-radius: 14px;
+    font-size: 14px;
+    line-height: 1.4;
+    white-space: pre-wrap;
+  }
+  .msg.user {
+    align-self: flex-end;
+    background: #7a2e2e;
+    color: #fff;
+    border-bottom-right-radius: 4px;
+  }
+  .msg.assistant {
+    align-self: flex-start;
+    background: #f0f0f0;
+    color: #222;
+    border-bottom-left-radius: 4px;
+  }
+  .msg.typing {
+    align-self: flex-start;
+    background: #f0f0f0;
+    color: #888;
+    font-style: italic;
+  }
+  #input-row {
+    display: flex;
+    border-top: 1px solid #eee;
+    padding: 10px;
+    gap: 8px;
+  }
+  #user-input {
+    flex: 1;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    padding: 10px 14px;
+    font-size: 14px;
+    outline: none;
+  }
+  #send-btn {
+    background: #7a2e2e;
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    padding: 10px 18px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #send-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>
+</head>
+<body>
+
+<div id="chat-container">
+  <div id="chat-header">
+    The Kings Arms
+    <small>Ask about our menu, hours, location or FAQs</small>
+  </div>
+  <div id="messages"></div>
+  <div id="input-row">
+    <input type="text" id="user-input" placeholder="Type your message..." autocomplete="off">
+    <button id="send-btn">Send</button>
+  </div>
+</div>
+
+<script>
+  // Change this if your backend runs on a different host/port
+  const API_URL = "http://127.0.0.1:8000/chat";
+
+  const messagesEl = document.getElementById("messages");
+  const inputEl = document.getElementById("user-input");
+  const sendBtn = document.getElementById("send-btn");
+
+  // Conversation history sent with every request so the assistant has context
+  let history = [];
+
+  function addMessage(role, text) {
+    const div = document.createElement("div");
+    div.className = "msg " + role;
+    div.textContent = text;
+    messagesEl.appendChild(div);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return div;
+  }
+
+  async function sendMessage() {
+    const text = inputEl.value.trim();
+    if (!text) return;
+
+    addMessage("user", text);
+    history.push({ role: "user", content: text });
+    inputEl.value = "";
+    sendBtn.disabled = true;
+
+    const typingEl = addMessage("typing", "Typing...");
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          history: history.slice(0, -1), // history BEFORE this new message
+          restaurant_id: 1
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Request failed with status " + response.status);
+      }
+
+      const data = await response.json();
+      typingEl.remove();
+      addMessage("assistant", data.reply);
+      history.push({ role: "assistant", content: data.reply });
+
+    } catch (err) {
+      typingEl.remove();
+      addMessage("assistant", "Sorry, something went wrong connecting to the assistant. Please try again shortly.");
+      console.error(err);
+    } finally {
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  sendBtn.addEventListener("click", sendMessage);
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+
+  // Greet the customer on load
+  addMessage("assistant", "Hiya! Welcome to The Kings Arms. Ask me about our menu, opening hours, location, or anything else — happy to help.");
+</script>
+
+</body>
+</html>

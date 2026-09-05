@@ -1,0 +1,17 @@
+# Environment variables (contains your real API key — never commit this)
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+env/
+.venv/
+
+# Database file (generated locally, don't commit)
+backend/restaurant.db
+
+# OS/editor junk
+.DS_Store
+.vscode/
+.idea/
