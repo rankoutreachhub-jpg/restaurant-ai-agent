@@ -172,6 +172,21 @@ be needed to enforce a true global limit across processes.
 
 ---
 
+### Chat input limits
+
+`/chat` request bodies are capped so a client can't force unbounded,
+costly context into every Gemini call:
+
+- `message`: max 2000 characters.
+- `history`: max 40 entries, each with `content` capped at 2000
+  characters too.
+
+A request over either limit gets a `422 Unprocessable Entity` with the
+standard FastAPI/Pydantic validation error body, before anything is
+sent to Gemini.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -246,6 +261,7 @@ Menu items: 11
 - [ ] Calling an `/admin/*` endpoint with the correct `X-Admin-API-Key` header succeeds
 - [ ] Sending more than 10 `/chat` requests within a minute returns `429 Too Many Requests` on the 11th
 - [ ] Sending more than 30 `/admin/*` requests within a minute (with or without a valid key) returns `429 Too Many Requests`
+- [ ] Sending a `/chat` message over 2000 characters, or with more than 40 history entries, returns `422 Unprocessable Entity`
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
