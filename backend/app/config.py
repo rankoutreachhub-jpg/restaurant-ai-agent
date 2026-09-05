@@ -4,7 +4,7 @@ Centralised configuration loading.
 WHY THIS FILE EXISTS:
 Previously, environment variables were read with plain os.getenv() calls
 scattered across files, and nothing ever loaded the .env file itself —
-so ANTHROPIC_API_KEY only worked if you manually exported it in your
+so GEMINI_API_KEY only worked if you manually exported it in your
 terminal every session. This file fixes that by:
 
   1. Loading backend/.env automatically using python-dotenv, using an
@@ -31,7 +31,7 @@ ENV_PATH = BACKEND_DIR / ".env"
 # nothing (no error) — validate_config() below is what catches a missing key.
 load_dotenv(dotenv_path=ENV_PATH)
 
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
 # Default DB path is absolute (based on this file's location) rather than
 # relative, so the database always lands in backend/restaurant.db no matter
@@ -51,19 +51,20 @@ def validate_config():
     """
     problems = []
 
-    if not ANTHROPIC_API_KEY:
+    if not GEMINI_API_KEY:
         problems.append(
-            "ANTHROPIC_API_KEY is missing.\n"
+            "GEMINI_API_KEY is missing.\n"
             f"  Expected it in: {ENV_PATH}\n"
-            "  Fix: copy .env.example to .env and paste in your real Anthropic API key.\n"
+            "  Fix: copy .env.example to .env and paste in your real Gemini API key.\n"
+            "  Get one at: https://aistudio.google.com/apikey\n"
             "  Example .env content:\n"
-            "    ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx"
+            "    GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
         )
-    elif not ANTHROPIC_API_KEY.startswith("sk-ant-"):
+    elif not GEMINI_API_KEY.startswith("AIza"):
         # Not a hard failure (key formats can change), but a useful sanity warning.
         print(
-            "WARNING: ANTHROPIC_API_KEY does not look like a typical Anthropic key "
-            "(expected it to start with 'sk-ant-'). If chat requests fail with an "
+            "WARNING: GEMINI_API_KEY does not look like a typical Google AI key "
+            "(expected it to start with 'AIza'). If chat requests fail with an "
             "authentication error, double-check the key in your .env file."
         )
 

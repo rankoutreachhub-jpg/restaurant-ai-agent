@@ -43,7 +43,7 @@ restaurant-ai-agent/
 ## 1. Prerequisites
 
 - Python 3.10+ installed (check with `python --version` in PowerShell)
-- An Anthropic API key (get one at https://console.anthropic.com)
+- A Google Gemini API key (get one at https://aistudio.google.com/apikey)
 
 ---
 
@@ -81,13 +81,13 @@ notepad .env
 In Notepad, replace the placeholder line with your real key, e.g.:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Save and close Notepad.
 
 **That's it for setup.** The key is now loaded automatically every time
-you run the server — no manual `$env:ANTHROPIC_API_KEY=...` needed.
+you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
 
 ---
 
@@ -187,7 +187,7 @@ Menu items: 11
 
 - [ ] `pip install -r requirements.txt` completes with no errors
 - [ ] Running `uvicorn app.main:app --reload` with a valid key in `.env` starts cleanly with no manual environment variable commands
-- [ ] Deleting/emptying `ANTHROPIC_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
+- [ ] Deleting/emptying `GEMINI_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
 - [ ] `.env` is listed in `.gitignore` and is never referenced from `frontend/index.html`
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run

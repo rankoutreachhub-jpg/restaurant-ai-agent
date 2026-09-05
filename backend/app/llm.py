@@ -1,19 +1,22 @@
 """
 LLM integration layer.
 
-This is where we call the Claude API. All the "never invent facts"
-behaviour comes from the SYSTEM_PROMPT_TEMPLATE below — this is prompt
-engineering, not code logic, because that's genuinely the right tool
-for the job: we want natural, flexible conversation, but boxed in by
-strict rules about what it's allowed to claim as fact.
+This is where we call the Gemini API via the Google GenAI SDK
+(google-genai). All the "never invent facts" behaviour comes from the
+SYSTEM_PROMPT_TEMPLATE below — this is prompt engineering, not code
+logic, because that's genuinely the right tool for the job: we want
+natural, flexible conversation, but boxed in by strict rules about what
+it's allowed to claim as fact.
 """
 
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
+
 from . import config
 
-client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
+client = genai.Client(api_key=config.GEMINI_API_KEY)
 
-MODEL_NAME = "claude-sonnet-4-6"
+MODEL_NAME = "gemini-2.5-flash"
 
 SYSTEM_PROMPT_TEMPLATE = """You are a friendly customer service assistant for a UK restaurant.
 You speak in a natural, warm, UK-English conversational tone (e.g. "Hiya", "no worries",
@@ -46,27 +49,27 @@ RESTAURANT DATA:
 
 def generate_reply(user_message: str, history: list, restaurant_context: str) -> str:
     """
-    Sends the conversation to Claude along with the restaurant's real
-    data baked into the system prompt, and returns the assistant's reply text.
+    Sends the conversation to Gemini along with the restaurant's real
+    data baked into the system instruction, and returns the assistant's
+    reply text.
     """
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(restaurant_context=restaurant_context)
 
-    # Build the message list: prior turns + the new user message
-    messages = []
+    # Gemini's "contents" list uses role "model" for prior assistant turns
+    # (there is no "assistant" role in this API, unlike Claude/OpenAI).
+    contents = []
     for turn in history:
-        messages.append({"role": turn.role, "content": turn.content})
-    messages.append({"role": "user", "content": user_message})
+        role = "model" if turn.role == "assistant" else "user"
+        contents.append(types.Content(role=role, parts=[types.Part(text=turn.content)]))
+    contents.append(types.Content(role="user", parts=[types.Part(text=user_message)]))
 
-    response = client.messages.create(
+    response = client.models.generate_content(
         model=MODEL_NAME,
-        max_tokens=500,
-        system=system_prompt,
-        messages=messages,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=500,
+        ),
     )
 
-    # response.content is a list of content blocks; for a plain text
-    # reply there will be one block of type "text".
-    reply_text = "".join(
-        block.text for block in response.content if getattr(block, "type", None) == "text"
-    )
-    return reply_text.strip()
+    return (response.text or "").strip()
