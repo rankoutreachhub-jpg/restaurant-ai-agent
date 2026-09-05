@@ -179,11 +179,12 @@ costly context into every Gemini call:
 
 - `message`: max 2000 characters.
 - `history`: max 40 entries, each with `content` capped at 2000
-  characters too.
+  characters too, and `role` restricted to `"user"` or `"assistant"`
+  (so a client can't inject a fake `"system"` turn into the Gemini call).
 
-A request over either limit gets a `422 Unprocessable Entity` with the
-standard FastAPI/Pydantic validation error body, before anything is
-sent to Gemini.
+A request over either limit, or with an invalid `role`, gets a
+`422 Unprocessable Entity` with the standard FastAPI/Pydantic validation
+error body, before anything is sent to Gemini.
 
 ---
 

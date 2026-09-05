@@ -5,7 +5,7 @@ interactive API docs at /docs.
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 
 CHAT_MESSAGE_MAX_LENGTH = 2000
@@ -13,7 +13,10 @@ CHAT_HISTORY_MAX_TURNS = 40
 
 
 class ChatMessage(BaseModel):
-    role: str
+    # Restricted to the two real conversation roles so a client can't
+    # inject a history entry with, e.g., role="system" that gets passed
+    # straight into the Gemini call in llm.py.
+    role: Literal["user", "assistant"]
     content: str = Field(
         ...,
         max_length=CHAT_MESSAGE_MAX_LENGTH,
