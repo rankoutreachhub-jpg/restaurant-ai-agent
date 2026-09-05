@@ -1,0 +1,48 @@
+# Local development stack with a real PostgreSQL instance — an
+# alternative to the zero-setup SQLite/venv workflow in README.md, for
+# anyone who wants production parity locally. Both remain fully
+# supported; this doesn't replace the venv-based workflow.
+#
+# Usage:
+#   cp backend/.env.example backend/.env   # then fill in real API keys
+#   docker compose up --build
+#
+# The app is then reachable at http://localhost:8000. Postgres data
+# persists in the "pgdata" named volume across restarts; `docker compose
+# down -v` removes it for a clean slate.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: restaurant_ai_agent
+      POSTGRES_PASSWORD: restaurant_ai_agent
+      POSTGRES_DB: restaurant_ai_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U restaurant_ai_agent"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      # Real GEMINI_API_KEY / ADMIN_API_KEY — copy from
+      # backend/.env.example and fill in, never commit the real file.
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://restaurant_ai_agent:restaurant_ai_agent@db:5432/restaurant_ai_agent
+    ports:
+      - "8000:8000"
+
+volumes:
+  pgdata:

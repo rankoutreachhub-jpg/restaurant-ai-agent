@@ -42,7 +42,7 @@ class OpeningHours(Base):
     __tablename__ = "opening_hours"
 
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
     day_of_week = Column(String, nullable=False)  # e.g. "Monday"
     open_time = Column(String, nullable=True)     # e.g. "12:00" (null if closed)
     close_time = Column(String, nullable=True)    # e.g. "22:00" (null if closed)
@@ -55,7 +55,7 @@ class MenuItem(Base):
     __tablename__ = "menu_items"
 
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
     category = Column(String, nullable=False)      # e.g. "Starters"
     name = Column(String, nullable=False)
     description = Column(Text, nullable=True)
@@ -69,7 +69,7 @@ class FAQ(Base):
     __tablename__ = "faqs"
 
     id = Column(Integer, primary_key=True, index=True)
-    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
     question = Column(String, nullable=False)
     answer = Column(Text, nullable=False)
 

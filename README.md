@@ -98,6 +98,13 @@ ADMIN_API_KEY=paste-the-generated-secret-here
 
 Save and close Notepad.
 
+```powershell
+# 8. Create the database schema (see "Database migrations" below) —
+#    required once, and again after pulling any future change that
+#    adds a migration.
+alembic upgrade head
+```
+
 **That's it for setup.** Both keys are now loaded automatically every
 time you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
 
@@ -120,8 +127,10 @@ INFO:     Application startup complete.
 INFO:     Uvicorn running on http://127.0.0.1:8000
 ```
 
-The database file (`backend\restaurant.db`) and example restaurant data
-are created automatically the first time you run this.
+The database file (`backend\restaurant.db`) is created by the
+`alembic upgrade head` step above (not by running the server); example
+restaurant data is seeded automatically the first time the server runs
+against it.
 
 **Start the frontend:** open `frontend\index.html` by double-clicking it
 (it opens in your default browser). It talks to the backend at
@@ -352,11 +361,12 @@ this MVP's single-process scale, but not a substitute for a real
 concurrency-safe reservation system at larger scale.
 
 **Schema change note:** adding bookings introduced a new `bookings`
-table and a new `seating_capacity` column on `restaurants`. Since this
-project has no migration tool (see "Known limitations" below),
-`restaurant.db` created before this change is missing that column —
-delete it (`backend/restaurant.db`) and restart so it's recreated with
-the current schema, same as any other schema change.
+table and a new `seating_capacity` column on `restaurants`. At the time,
+this project had no migration tool, so a `restaurant.db` created before
+this change was missing that column and needed recreating from
+scratch. That's no longer how schema changes are handled — see
+"Database migrations" below, which covers exactly this scenario for any
+database (including an existing pre-Alembic `restaurant.db`).
 
 ---
 
@@ -461,8 +471,11 @@ Menu items: 11
 - [ ] Creating a booking within capacity and opening hours returns `201`; a second overlapping booking that would exceed `seating_capacity` returns `409`
 - [ ] Creating a booking outside opening hours, or on a day the restaurant is closed, returns `409`
 - [ ] Cancelling a booking (`PATCH` with `status: "cancelled"`) frees its capacity for a new overlapping booking
+- [ ] `alembic upgrade head` creates `backend\restaurant.db` with all 5 tables (no manual `create_all()` step exists anymore)
+- [ ] Running `alembic upgrade head` again (already at head) is a no-op — no error, no duplicate tables
+- [ ] `docker compose up --build` starts a working app against PostgreSQL: migrations apply, `/health` returns `200`, and an authenticated admin request (e.g. `GET /admin/restaurant/1`) succeeds
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
-- [ ] `restaurant.db` appears in `backend\` after first run
+- [ ] `restaurant.db` appears in `backend\` after running `alembic upgrade head`
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
 - [ ] Opening `frontend/index.html` shows the chat widget with a greeting
 - [ ] Sending a real message (with your real API key in place) gets a natural UK-English reply within a few seconds
@@ -512,9 +525,10 @@ that information to hand — I'll flag it to the team" rather than guessing.
 - Table bookings exist and are admin-managed (see "Table bookings"
   above) but aren't yet reachable through `/chat` — AI-assisted booking
   is a later stage. No calendar sync, payments, or WhatsApp/SMS either.
-- Editing restaurant data requires editing `seed_data.py` directly and
-  restarting with a fresh database (delete `restaurant.db` and restart).
-  An admin editing interface is a future stage.
+- Restaurant/menu/hours data is editable via the `/admin/*` API (see
+  "Admin authentication" above), but there's still no admin *interface*
+  — a future stage. Schema changes themselves now go through Alembic
+  (see "Database migrations" below), not editing `seed_data.py`.
 - Conversation history is only kept in the browser tab (frontend
   JavaScript variable) — refreshing the page clears it. No conversations
   are persisted to the database yet.
@@ -555,10 +569,11 @@ Notes:
 - The image runs as a non-root user and defines a `HEALTHCHECK` that
   polls `/health` (pure Python — no `curl`/`wget` needed in the slim
   base image).
-- Without a mounted volume, the SQLite database and log file created
-  inside the container (`/app/restaurant.db`, `/app/logs/app.log`) are
-  lost when the container is removed — expected for this stage; a
-  managed database is a later Stage 3 step (see the Stage 3 audit).
+- Without a mounted volume or a `DATABASE_URL` pointing elsewhere, the
+  SQLite database and log file created inside the container
+  (`/app/restaurant.db`, `/app/logs/app.log`) are lost when the
+  container is removed. For a persistent database, point `DATABASE_URL`
+  at PostgreSQL instead — see "PostgreSQL" below.
 - This does not replace the local development workflow above (a venv
   is still the fastest local dev loop); it's the way this app runs
   anywhere Docker is available, including in CI (see below).
@@ -580,6 +595,108 @@ Actions, with two jobs:
 - **`docker`** — builds the image from this repository's `Dockerfile`,
   starts a container with fake (non-secret) key values, and polls
   `/health` until it responds, catching any Dockerfile or startup
-  regression on every change.
+  regression on every change. Since the image runs `alembic upgrade
+  head` before starting the server, this also catches a broken
+  migration — the container fails to become healthy if one fails.
 
 Both must pass before merging.
+
+---
+
+## 11. Database migrations (Alembic)
+
+Schema is managed entirely by [Alembic](https://alembic.sqlalchemy.org/)
+— nothing creates or alters tables automatically at app startup. This
+applies to every environment (SQLite or PostgreSQL, local venv, Docker,
+or deployed) so there is exactly one way schemas ever get created.
+
+**Required commands** (run from `backend/`, with your `.env` in place):
+```powershell
+# Apply all pending migrations — required once after first setup, and
+# again after pulling any change that adds a new migration.
+alembic upgrade head
+
+# After changing backend/app/models.py, generate a new migration...
+alembic revision --autogenerate -m "describe the change"
+# ...then ALWAYS hand-review the generated file in
+# backend/alembic/versions/ before running upgrade again. Autogenerate
+# is a strong starting point, not a guarantee — it can miss things.
+
+# Revert the most recent migration if something's wrong:
+alembic downgrade -1
+```
+
+**If you have an existing `backend/restaurant.db` from before Alembic
+was introduced** (it has all the right tables already, Alembic just
+doesn't know that yet), running `alembic upgrade head` blind will fail
+with a "table already exists" error. Two options:
+1. **Recommended for local dev** — delete `backend/restaurant.db` and
+   run `alembic upgrade head` to recreate it from scratch. There's no
+   real data in a local dev database worth protecting; this is the same
+   "just delete it and restart" guidance this project has always given
+   for schema changes.
+2. **If you've entered real data via the admin API and want to keep
+   it** — run `alembic stamp head` once instead. This marks the
+   database as already being at the current schema *without* running
+   any migration SQL, adopting Alembic going forward without touching
+   existing tables or rows.
+
+**Why this doesn't run automatically at app startup:** it did, briefly,
+via `models.Base.metadata.create_all()` — but that only ever *creates
+missing tables*, silently, with no history and no way to alter an
+existing column safely. Mixing that with a real migration tool is a
+well-known way to get schema drift that's hard to debug. Alembic is now
+the only mechanism, in every environment.
+
+---
+
+## 12. PostgreSQL
+
+SQLite remains the zero-setup default (see §§1–3) — nothing about it
+changed. PostgreSQL is a fully-supported alternative for anyone who
+wants production parity locally, via the same `DATABASE_URL` config
+already documented in `.env.example`.
+
+### Quick start with Docker Compose
+
+```bash
+cp backend/.env.example backend/.env   # then fill in real API keys
+docker compose up --build
+```
+
+This starts a `postgres:16-alpine` container plus the app, wired
+together — the app's `alembic upgrade head` runs automatically as part
+of its container startup (see the Dockerfile), so the database is ready
+by the time the app answers requests. Reachable at
+`http://localhost:8000`. Data persists in the `pgdata` named volume;
+`docker compose down -v` removes it for a clean slate.
+
+### Without Docker Compose
+
+Point `DATABASE_URL` at any reachable PostgreSQL instance and run the
+same migration step:
+```
+DATABASE_URL=postgresql+psycopg2://user:password@host:5432/dbname
+```
+```powershell
+alembic upgrade head
+uvicorn app.main:app --reload
+```
+
+### Notes
+
+- The driver is `psycopg2` (via `psycopg2-binary`), not `psycopg` v3 —
+  deliberately, so a bare `postgresql://...` connection string from a
+  managed provider (Render, Railway, RDS, Supabase, ...) works without
+  rewriting it to `postgresql+psycopg://...`. This app has no use for
+  psycopg3's async support, since every route is synchronous.
+- Managed providers often require SSL — check if you need to append
+  `?sslmode=require` to their connection string.
+- `database.py` applies `pool_pre_ping=True` automatically whenever
+  `DATABASE_URL` isn't SQLite — recovers cleanly from a managed
+  provider silently closing an idle connection.
+- **Known limitation carried forward unchanged:** booking availability
+  is still a check-then-insert (see "Table bookings" above), not yet a
+  database-enforced guarantee. PostgreSQL supports `EXCLUDE` constraints
+  (via the `btree_gist` extension) that could make this atomic — a
+  worthwhile follow-up, deliberately not bundled into this change.
