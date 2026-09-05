@@ -11,6 +11,7 @@ the shell) are left untouched via setdefault().
 
 import os
 import tempfile
+from pathlib import Path
 
 os.environ.setdefault("GEMINI_API_KEY", "AIzaSyTEST0000000000000000000000000")
 os.environ.setdefault("ADMIN_API_KEY", "test-admin-key-for-pytest-only")
@@ -20,6 +21,16 @@ os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
 
 os.environ["LOG_DIR"] = tempfile.mkdtemp(suffix="-logs")
+
+# Build the test database's schema through Alembic — the same mechanism
+# every other environment uses (see app/main.py) — rather than a
+# separate create_all() path. This means the full test suite also
+# verifies the migrations themselves apply cleanly, on every run.
+from alembic import command
+from alembic.config import Config
+
+_alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+command.upgrade(Config(str(_alembic_ini)), "head")
 
 import pytest
 from fastapi.testclient import TestClient

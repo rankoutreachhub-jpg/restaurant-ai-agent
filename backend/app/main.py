@@ -12,8 +12,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import models, config
-from .database import engine, SessionLocal
+from . import config
+from .database import SessionLocal
 from .logging_config import configure_logging
 from .routers import chat, admin, bookings
 from .seed_data import seed_if_empty
@@ -25,7 +25,11 @@ configure_logging()
 
 config.validate_config()
 
-models.Base.metadata.create_all(bind=engine)
+# Schema is managed by Alembic (see backend/alembic/), not created here.
+# Run `alembic upgrade head` before starting the app — see README.md
+# ("Database migrations"). This applies to every environment (SQLite or
+# PostgreSQL, local or deployed) so there is exactly one way schemas
+# ever get created, never two mechanisms that can drift apart.
 
 
 @asynccontextmanager
