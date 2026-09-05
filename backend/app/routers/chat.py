@@ -13,8 +13,13 @@ from sqlalchemy.orm import Session
 
 from .. import schemas, knowledge, llm
 from ..database import get_db
+from ..rate_limit import chat_rate_limiter
 
-router = APIRouter(prefix="/chat", tags=["chat"])
+router = APIRouter(
+    prefix="/chat",
+    tags=["chat"],
+    dependencies=[Depends(chat_rate_limiter)],
+)
 
 
 @router.post("", response_model=schemas.ChatResponse)

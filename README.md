@@ -147,6 +147,31 @@ Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1 `
 
 ---
 
+### Rate limiting
+
+Both `/chat` and `/admin/*` are rate-limited per client IP (in-memory,
+no external service needed):
+
+- `/chat`: 10 requests per minute — generous for a real conversation,
+  tight enough to stop a script from running up the Gemini bill.
+- `/admin/*`: 30 requests per minute — bounds brute-forcing/flooding of
+  the admin key. This check runs *before* the key check, so even
+  unauthenticated guesses count against the limit.
+- `/health` is never rate-limited.
+
+Exceeding the limit returns `429 Too Many Requests` with a `Retry-After`
+header (seconds until the window resets).
+
+**Known limitation:** the counters live in the process's memory, so
+this only enforces the stated limit correctly for a single-process
+deployment (the default `uvicorn app.main:app` setup). Running multiple
+worker processes, or multiple instances behind a load balancer, gives
+each process its own counters — the effective limit becomes
+`max_requests × number of processes`. A shared store (e.g. Redis) would
+be needed to enforce a true global limit across processes.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -219,6 +244,8 @@ Menu items: 11
 - [ ] `.env` is listed in `.gitignore` and is never referenced from `frontend/index.html`
 - [ ] Calling any `/admin/*` endpoint with no `X-Admin-API-Key` header, or the wrong value, returns `401 Unauthorized`
 - [ ] Calling an `/admin/*` endpoint with the correct `X-Admin-API-Key` header succeeds
+- [ ] Sending more than 10 `/chat` requests within a minute returns `429 Too Many Requests` on the 11th
+- [ ] Sending more than 30 `/admin/*` requests within a minute (with or without a valid key) returns `429 Too Many Requests`
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
