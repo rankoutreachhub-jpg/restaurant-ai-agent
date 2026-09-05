@@ -112,11 +112,19 @@ def test_create_booking_rejected_when_restaurant_closed_that_day(db):
         )
         .first()
     )
+    # OpeningHours is a weekly recurring schedule (keyed by day-of-week
+    # name, not a specific calendar date), and the DB is shared across
+    # the whole test session — restore this so no other test whose date
+    # happens to land on the same weekday is affected.
+    original_is_closed = hours.is_closed
     hours.is_closed = True
     db.commit()
-
-    with pytest.raises(BookingConflictError):
-        create_booking(db, restaurant, _make_booking_data(booking_date=_CLOSED_DATE, booking_time=time(19, 0)))
+    try:
+        with pytest.raises(BookingConflictError):
+            create_booking(db, restaurant, _make_booking_data(booking_date=_CLOSED_DATE, booking_time=time(19, 0)))
+    finally:
+        hours.is_closed = original_is_closed
+        db.commit()
 
 
 def test_create_booking_rejected_outside_opening_hours(db):
