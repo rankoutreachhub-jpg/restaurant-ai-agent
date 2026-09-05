@@ -14,9 +14,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models, config
 from .database import engine, SessionLocal
+from .logging_config import configure_logging
 from .routers import chat, admin
 from .seed_data import seed_if_empty
 
+# Console + rotating log file for errors and important events (see
+# app/logging_config.py) — set up before anything else logs, so nothing
+# is missed.
+configure_logging()
 
 config.validate_config()
 
@@ -44,7 +49,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.ALLOWED_ORIGINS,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

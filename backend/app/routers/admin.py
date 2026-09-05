@@ -3,11 +3,20 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, schemas
+from ..auth import verify_admin_key
+from ..rate_limit import admin_rate_limiter
 
 
 router = APIRouter(
     prefix="/admin",
     tags=["Admin"],
+    # Applied to every route on this router, current and future (menu,
+    # opening hours, and any booking-management endpoints added later) —
+    # so nothing under /admin/* is reachable without a valid admin key.
+    # Rate limiting runs before the key check so brute-forcing/flooding
+    # the admin key is throttled too, not just successfully authenticated
+    # requests.
+    dependencies=[Depends(admin_rate_limiter), Depends(verify_admin_key)],
 )
 
 

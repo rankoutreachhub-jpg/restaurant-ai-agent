@@ -5,23 +5,38 @@ interactive API docs at /docs.
 """
 
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Literal, Optional
+
+
+CHAT_MESSAGE_MAX_LENGTH = 2000
+CHAT_HISTORY_MAX_TURNS = 40
 
 
 class ChatMessage(BaseModel):
-    role: str
-    content: str
+    # Restricted to the two real conversation roles so a client can't
+    # inject a history entry with, e.g., role="system" that gets passed
+    # straight into the Gemini call in llm.py.
+    role: Literal["user", "assistant"]
+    content: str = Field(
+        ...,
+        max_length=CHAT_MESSAGE_MAX_LENGTH,
+        description="A single past turn's text",
+    )
 
 
 class ChatRequest(BaseModel):
     message: str = Field(
         ...,
         min_length=1,
-        description="The customer's message"
+        max_length=CHAT_MESSAGE_MAX_LENGTH,
+        description="The customer's message",
     )
     history: Optional[List[ChatMessage]] = Field(
         default=[],
-        description="Previous turns in this conversation, oldest first"
+        max_length=CHAT_HISTORY_MAX_TURNS,
+        description="Previous turns in this conversation, oldest first. "
+                     "Capped so a client can't force unbounded, costly "
+                     "context into every Gemini call.",
     )
     restaurant_id: int = Field(
         default=1,

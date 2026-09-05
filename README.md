@@ -43,7 +43,7 @@ restaurant-ai-agent/
 ## 1. Prerequisites
 
 - Python 3.10+ installed (check with `python --version` in PowerShell)
-- An Anthropic API key (get one at https://console.anthropic.com)
+- A Google Gemini API key (get one at https://aistudio.google.com/apikey)
 
 ---
 
@@ -81,13 +81,25 @@ notepad .env
 In Notepad, replace the placeholder line with your real key, e.g.:
 
 ```
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxxxxxxxxxx
+GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+While you're in there, also set `ADMIN_API_KEY` to a long random secret
+(this protects the `/admin/*` endpoints — restaurant, menu, and opening
+hours management). Generate one with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```
+ADMIN_API_KEY=paste-the-generated-secret-here
 ```
 
 Save and close Notepad.
 
-**That's it for setup.** The key is now loaded automatically every time
-you run the server — no manual `$env:ANTHROPIC_API_KEY=...` needed.
+**That's it for setup.** Both keys are now loaded automatically every
+time you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
 
 ---
 
@@ -98,9 +110,9 @@ you run the server — no manual `$env:ANTHROPIC_API_KEY=...` needed.
 uvicorn app.main:app --reload
 ```
 
-**If the API key is missing or empty in `.env`**, the server will refuse
-to start and print a clear message telling you exactly what's wrong and
-how to fix it, instead of starting broken.
+**If either API key is missing or empty in `.env`**, the server will
+refuse to start and print a clear message telling you exactly what's
+wrong and how to fix it, instead of starting broken.
 
 If everything is correct, you'll see:
 ```
@@ -114,8 +126,175 @@ are created automatically the first time you run this.
 **Start the frontend:** open `frontend\index.html` by double-clicking it
 (it opens in your default browser). It talks to the backend at
 `http://127.0.0.1:8000/chat` — the backend must be running first. No API
-key is ever present in this file — all Claude API calls happen on the
+key is ever present in this file — all Gemini API calls happen on the
 backend only.
+
+---
+
+### Admin authentication
+
+Every `/admin/*` endpoint (restaurant details, menu, opening hours, and
+any booking-management endpoints added later) requires a valid
+`X-Admin-API-Key` header matching the `ADMIN_API_KEY` value in `.env`.
+Requests without it, or with the wrong value, get a `401 Unauthorized`
+response — the `/chat` and `/health` endpoints are unaffected and need
+no key.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1 `
+  -Headers @{ "X-Admin-API-Key" = "paste-your-real-admin-key-here" }
+```
+
+---
+
+### Rotating the admin key
+
+Rotate `ADMIN_API_KEY` periodically, or immediately if you suspect it
+leaked, without locking out clients mid-rotation:
+
+1. **Generate a new key:**
+   ```powershell
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+2. **Edit `.env`:** move the *current* value of `ADMIN_API_KEY` into a
+   new `ADMIN_API_KEY_PREVIOUS` line, then set `ADMIN_API_KEY` to the
+   newly generated value.
+   ```
+   ADMIN_API_KEY=the-new-key-you-just-generated
+   ADMIN_API_KEY_PREVIOUS=the-old-key-that-was-in-use
+   ```
+3. **Restart the server.** Both the new key and the old key now work —
+   this is the transition window.
+4. **Update every admin client/script** (anything sending
+   `X-Admin-API-Key`) to use the new key.
+5. **Once you've confirmed nothing still uses the old key**, delete the
+   `ADMIN_API_KEY_PREVIOUS` line from `.env` and restart. The old key is
+   now fully revoked — only the new key works.
+
+Notes:
+- `ADMIN_API_KEY_PREVIOUS` is optional and has no effect if left unset
+  — normal (non-rotating) operation is unchanged.
+- Neither key is ever echoed back in a response body or written to the
+  server logs, during a rotation or otherwise — only the fact that a
+  request was accepted or rejected is observable.
+- Keep the transition window short; the whole point of
+  `ADMIN_API_KEY_PREVIOUS` is to make rotation safe, not to run two
+  keys indefinitely.
+
+---
+
+### Rate limiting
+
+Both `/chat` and `/admin/*` are rate-limited per client IP (in-memory,
+no external service needed):
+
+- `/chat`: 10 requests per minute — generous for a real conversation,
+  tight enough to stop a script from running up the Gemini bill.
+- `/admin/*`: 30 requests per minute — bounds brute-forcing/flooding of
+  the admin key. This check runs *before* the key check, so even
+  unauthenticated guesses count against the limit.
+- `/health` is never rate-limited.
+
+Exceeding the limit returns `429 Too Many Requests` with a `Retry-After`
+header (seconds until the window resets).
+
+**Known limitation:** the counters live in the process's memory, so
+this only enforces the stated limit correctly for a single-process
+deployment (the default `uvicorn app.main:app` setup). Running multiple
+worker processes, or multiple instances behind a load balancer, gives
+each process its own counters — the effective limit becomes
+`max_requests × number of processes`. A shared store (e.g. Redis) would
+be needed to enforce a true global limit across processes.
+
+---
+
+### Chat input limits
+
+`/chat` request bodies are capped so a client can't force unbounded,
+costly context into every Gemini call:
+
+- `message`: max 2000 characters.
+- `history`: max 40 entries, each with `content` capped at 2000
+  characters too, and `role` restricted to `"user"` or `"assistant"`
+  (so a client can't inject a fake `"system"` turn into the Gemini call).
+
+A request over either limit, or with an invalid `role`, gets a
+`422 Unprocessable Entity` with the standard FastAPI/Pydantic validation
+error body, before anything is sent to Gemini.
+
+---
+
+### CORS
+
+The API only answers cross-origin browser requests (CORS) from origins
+listed in `ALLOWED_ORIGINS` — it no longer allows every origin (`*`).
+
+If `ALLOWED_ORIGINS` isn't set in `.env`, it defaults to:
+
+```
+http://localhost:3000,http://127.0.0.1:3000,
+http://localhost:5500,http://127.0.0.1:5500,
+http://localhost:8000,http://127.0.0.1:8000,
+null
+```
+
+`"null"` is the literal `Origin` value browsers send for a page opened
+directly as a local file — i.e. exactly how this README tells you to
+open `frontend/index.html` (by double-clicking it) — so that keeps
+working out of the box. The other defaults cover common local dev
+server ports (a simple static-file server, Create React App, Vite,
+VS Code Live Server, etc.).
+
+**Before deploying**, set `ALLOWED_ORIGINS` to your real frontend
+domain(s) and drop the localhost/`null` defaults, e.g.:
+
+```
+ALLOWED_ORIGINS=https://www.example.com,https://example.com
+```
+
+A request from an origin not on the list still gets a normal response
+from the server (CORS is enforced by the browser reading response
+headers, not by the server refusing to answer) — it just won't include
+the `Access-Control-Allow-Origin` header, so a real browser blocks the
+page's JavaScript from reading it. A CORS *preflight* request (sent
+automatically by browsers before some cross-origin calls) from a
+disallowed origin gets `400 Bad Request`.
+
+---
+
+### Application logging
+
+Errors and important events are logged to **both** the console and a
+rotating log file at `backend/logs/app.log` (created automatically on
+first run — set `LOG_DIR` in `.env` to use a different location). Every
+line has a timestamp, level, and logger name, e.g.:
+
+```
+2026-01-15 09:12:03,441 WARNING app.auth: Admin authentication failed (client=203.0.113.7 path=/admin/restaurant/1)
+2026-01-15 09:14:20,118 ERROR app.routers.chat: Unhandled error while generating a chat reply
+2026-01-15 09:20:44,902 WARNING app.rate_limit: Rate limit exceeded (limiter=chat client=203.0.113.7 path=/chat)
+```
+
+What's logged: unhandled `/chat` errors (with the real exception detail
+— the client only ever sees a generic message, per the "Chat input
+limits"-adjacent error handling above), rejected admin authentication
+attempts, rate-limit throttling, and restaurant-data seeding at startup.
+
+**What's deliberately never logged:** `GEMINI_API_KEY`, `ADMIN_API_KEY`
+/ `ADMIN_API_KEY_PREVIOUS`, the `X-Admin-API-Key` header value (valid
+*or* invalid — a rejected admin request logs only the client IP and
+path, never the key that was tried), full request/response bodies, or
+customer chat message content.
+
+**Rotation:** once `app.log` reaches ~1 MB, it's renamed `app.log.1`
+(and any existing `app.log.1` → `app.log.2`, etc.), and a fresh
+`app.log` is started. Up to 5 rotated backups are kept
+(`app.log.1`–`app.log.5`); older ones are deleted automatically. This
+bounds disk usage without needing an external log-shipping service —
+enough for this MVP's single-instance deployment.
+
+`backend/logs/` is listed in `.gitignore` — log files are generated
+locally and are never committed.
 
 ---
 
@@ -187,8 +366,19 @@ Menu items: 11
 
 - [ ] `pip install -r requirements.txt` completes with no errors
 - [ ] Running `uvicorn app.main:app --reload` with a valid key in `.env` starts cleanly with no manual environment variable commands
-- [ ] Deleting/emptying `ANTHROPIC_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
+- [ ] Deleting/emptying `GEMINI_API_KEY` or `ADMIN_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
 - [ ] `.env` is listed in `.gitignore` and is never referenced from `frontend/index.html`
+- [ ] Calling any `/admin/*` endpoint with no `X-Admin-API-Key` header, or the wrong value, returns `401 Unauthorized`
+- [ ] Calling an `/admin/*` endpoint with the correct `X-Admin-API-Key` header succeeds
+- [ ] With `ADMIN_API_KEY_PREVIOUS` set, both the current `ADMIN_API_KEY` and the previous key succeed; an unrelated key and a missing key still return `401`
+- [ ] Removing `ADMIN_API_KEY_PREVIOUS` and restarting makes the old key stop working (only the current key succeeds)
+- [ ] Sending more than 10 `/chat` requests within a minute returns `429 Too Many Requests` on the 11th
+- [ ] Sending more than 30 `/admin/*` requests within a minute (with or without a valid key) returns `429 Too Many Requests`
+- [ ] Sending a `/chat` message over 2000 characters, or with more than 40 history entries, returns `422 Unprocessable Entity`
+- [ ] A CORS preflight request from an origin not in `ALLOWED_ORIGINS` returns `400 Bad Request`
+- [ ] A CORS preflight request from an origin in `ALLOWED_ORIGINS` (or `null`, for the file-opened frontend) succeeds with the matching `Access-Control-Allow-Origin` header
+- [ ] `backend/logs/app.log` is created after the server starts, and its lines have a timestamp, level, and logger name
+- [ ] A failed `/admin/*` auth attempt is logged (client + path) without the submitted key ever appearing in `app.log`
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
@@ -244,5 +434,7 @@ that information to hand — I'll flag it to the team" rather than guessing.
 - Conversation history is only kept in the browser tab (frontend
   JavaScript variable) — refreshing the page clears it. No conversations
   are persisted to the database yet.
-- CORS currently allows all origins (`*`) for ease of local testing —
-  this should be restricted to your actual domain before going live.
+- CORS is restricted to `ALLOWED_ORIGINS` (see "CORS" below) rather than
+  allowing all origins — but its default value still includes common
+  localhost dev origins and `"null"` for ease of local testing, so set
+  it to your actual domain(s) before going live.
