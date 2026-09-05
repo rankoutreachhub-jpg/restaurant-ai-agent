@@ -24,3 +24,30 @@ def test_health_does_not_require_admin_key(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_chat_error_does_not_leak_internal_exception_details(client, monkeypatch, caplog):
+    sensitive_detail = "API key not valid: sk-super-secret-upstream-key-12345"
+
+    def _boom(**kwargs):
+        raise RuntimeError(sensitive_detail)
+
+    monkeypatch.setattr(llm, "generate_reply", _boom)
+
+    with caplog.at_level("ERROR"):
+        response = client.post(
+            "/chat",
+            json={"message": "hi", "history": [], "restaurant_id": 1},
+        )
+
+    assert response.status_code == 500
+    body = response.json()
+    assert sensitive_detail not in body["detail"]
+    assert "RuntimeError" not in body["detail"]
+    assert body["detail"] == (
+        "Sorry, something went wrong on our end. Please try again shortly."
+    )
+
+    # The real detail should still be captured server-side (e.g. for an
+    # operator watching logs), just never sent back to the client.
+    assert sensitive_detail in caplog.text

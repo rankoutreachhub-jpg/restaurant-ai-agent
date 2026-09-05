@@ -4,9 +4,11 @@ Chat API endpoint.
 This is what the frontend widget calls every time the customer sends
 a message. It:
   1. Looks up the restaurant's real data (knowledge.py)
-  2. Sends it + the conversation to Claude (llm.py)
+  2. Sends it + the conversation to Gemini (llm.py)
   3. Returns the reply
 """
+
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -14,6 +16,8 @@ from sqlalchemy.orm import Session
 from .. import schemas, knowledge, llm
 from ..database import get_db
 from ..rate_limit import chat_rate_limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/chat",
@@ -39,6 +43,12 @@ def chat(request: schemas.ChatRequest, db: Session = Depends(get_db)):
 
     except HTTPException:
         raise
-    except Exception as e:
-        # In production you'd log this properly. For MVP, surface a clear error.
-        raise HTTPException(status_code=500, detail=f"Something went wrong: {str(e)}")
+    except Exception:
+        # Log the full error server-side (stack trace, Gemini error body,
+        # etc.) but never expose that internal detail to the customer —
+        # it could reveal implementation details or upstream error text.
+        logger.exception("Unhandled error while generating a chat reply")
+        raise HTTPException(
+            status_code=500,
+            detail="Sorry, something went wrong on our end. Please try again shortly.",
+        )

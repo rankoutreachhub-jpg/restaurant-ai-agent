@@ -7,6 +7,7 @@ Run this with:
 from inside the backend/ folder.
 """
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -17,6 +18,10 @@ from .database import engine, SessionLocal
 from .routers import chat, admin
 from .seed_data import seed_if_empty
 
+# So errors logged with logger.exception() (see routers/chat.py) show up
+# with a timestamp and level on the server console, instead of relying on
+# Python's bare last-resort stderr handler.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 config.validate_config()
 
