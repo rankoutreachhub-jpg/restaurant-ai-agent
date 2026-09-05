@@ -33,6 +33,11 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
+# Shared secret required in the "X-Admin-API-Key" header on every /admin/*
+# request (see app/auth.py). Simple pre-shared-key auth, not user accounts —
+# appropriate for a single-operator MVP admin surface.
+ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
+
 # Default DB path is absolute (based on this file's location) rather than
 # relative, so the database always lands in backend/restaurant.db no matter
 # which folder you happen to run the server from. This matters especially
@@ -66,6 +71,22 @@ def validate_config():
             "WARNING: GEMINI_API_KEY does not look like a typical Google AI key "
             "(expected it to start with 'AIza'). If chat requests fail with an "
             "authentication error, double-check the key in your .env file."
+        )
+
+    if not ADMIN_API_KEY:
+        problems.append(
+            "ADMIN_API_KEY is missing.\n"
+            f"  Expected it in: {ENV_PATH}\n"
+            "  Fix: add a long random secret to your .env file. Generate one with:\n"
+            "    python -c \"import secrets; print(secrets.token_urlsafe(32))\"\n"
+            "  Example .env content:\n"
+            "    ADMIN_API_KEY=your-generated-secret-here"
+        )
+    elif len(ADMIN_API_KEY) < 16:
+        # Not a hard failure, but a short/guessable secret defeats the point.
+        print(
+            "WARNING: ADMIN_API_KEY is shorter than 16 characters. Use a longer, "
+            "randomly generated secret to protect the admin endpoints."
         )
 
     if problems:

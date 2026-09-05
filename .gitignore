@@ -7,6 +7,7 @@ __pycache__/
 venv/
 env/
 .venv/
+.pytest_cache/
 
 # Database file (generated locally, don't commit)
 backend/restaurant.db

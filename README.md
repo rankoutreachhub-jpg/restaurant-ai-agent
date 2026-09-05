@@ -84,10 +84,22 @@ In Notepad, replace the placeholder line with your real key, e.g.:
 GEMINI_API_KEY=AIzaSyxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
+While you're in there, also set `ADMIN_API_KEY` to a long random secret
+(this protects the `/admin/*` endpoints — restaurant, menu, and opening
+hours management). Generate one with:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+```
+ADMIN_API_KEY=paste-the-generated-secret-here
+```
+
 Save and close Notepad.
 
-**That's it for setup.** The key is now loaded automatically every time
-you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
+**That's it for setup.** Both keys are now loaded automatically every
+time you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
 
 ---
 
@@ -98,9 +110,9 @@ you run the server — no manual `$env:GEMINI_API_KEY=...` needed.
 uvicorn app.main:app --reload
 ```
 
-**If the API key is missing or empty in `.env`**, the server will refuse
-to start and print a clear message telling you exactly what's wrong and
-how to fix it, instead of starting broken.
+**If either API key is missing or empty in `.env`**, the server will
+refuse to start and print a clear message telling you exactly what's
+wrong and how to fix it, instead of starting broken.
 
 If everything is correct, you'll see:
 ```
@@ -114,8 +126,24 @@ are created automatically the first time you run this.
 **Start the frontend:** open `frontend\index.html` by double-clicking it
 (it opens in your default browser). It talks to the backend at
 `http://127.0.0.1:8000/chat` — the backend must be running first. No API
-key is ever present in this file — all Claude API calls happen on the
+key is ever present in this file — all Gemini API calls happen on the
 backend only.
+
+---
+
+### Admin authentication
+
+Every `/admin/*` endpoint (restaurant details, menu, opening hours, and
+any booking-management endpoints added later) requires a valid
+`X-Admin-API-Key` header matching the `ADMIN_API_KEY` value in `.env`.
+Requests without it, or with the wrong value, get a `401 Unauthorized`
+response — the `/chat` and `/health` endpoints are unaffected and need
+no key.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1 `
+  -Headers @{ "X-Admin-API-Key" = "paste-your-real-admin-key-here" }
+```
 
 ---
 
@@ -187,8 +215,10 @@ Menu items: 11
 
 - [ ] `pip install -r requirements.txt` completes with no errors
 - [ ] Running `uvicorn app.main:app --reload` with a valid key in `.env` starts cleanly with no manual environment variable commands
-- [ ] Deleting/emptying `GEMINI_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
+- [ ] Deleting/emptying `GEMINI_API_KEY` or `ADMIN_API_KEY` in `.env` and restarting the server produces a clear, readable error message and the server exits (does NOT start broken)
 - [ ] `.env` is listed in `.gitignore` and is never referenced from `frontend/index.html`
+- [ ] Calling any `/admin/*` endpoint with no `X-Admin-API-Key` header, or the wrong value, returns `401 Unauthorized`
+- [ ] Calling an `/admin/*` endpoint with the correct `X-Admin-API-Key` header succeeds
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
