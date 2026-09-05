@@ -147,6 +147,42 @@ Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1 `
 
 ---
 
+### Rotating the admin key
+
+Rotate `ADMIN_API_KEY` periodically, or immediately if you suspect it
+leaked, without locking out clients mid-rotation:
+
+1. **Generate a new key:**
+   ```powershell
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+2. **Edit `.env`:** move the *current* value of `ADMIN_API_KEY` into a
+   new `ADMIN_API_KEY_PREVIOUS` line, then set `ADMIN_API_KEY` to the
+   newly generated value.
+   ```
+   ADMIN_API_KEY=the-new-key-you-just-generated
+   ADMIN_API_KEY_PREVIOUS=the-old-key-that-was-in-use
+   ```
+3. **Restart the server.** Both the new key and the old key now work —
+   this is the transition window.
+4. **Update every admin client/script** (anything sending
+   `X-Admin-API-Key`) to use the new key.
+5. **Once you've confirmed nothing still uses the old key**, delete the
+   `ADMIN_API_KEY_PREVIOUS` line from `.env` and restart. The old key is
+   now fully revoked — only the new key works.
+
+Notes:
+- `ADMIN_API_KEY_PREVIOUS` is optional and has no effect if left unset
+  — normal (non-rotating) operation is unchanged.
+- Neither key is ever echoed back in a response body or written to the
+  server logs, during a rotation or otherwise — only the fact that a
+  request was accepted or rejected is observable.
+- Keep the transition window short; the whole point of
+  `ADMIN_API_KEY_PREVIOUS` is to make rotation safe, not to run two
+  keys indefinitely.
+
+---
+
 ### Rate limiting
 
 Both `/chat` and `/admin/*` are rate-limited per client IP (in-memory,
@@ -298,6 +334,8 @@ Menu items: 11
 - [ ] `.env` is listed in `.gitignore` and is never referenced from `frontend/index.html`
 - [ ] Calling any `/admin/*` endpoint with no `X-Admin-API-Key` header, or the wrong value, returns `401 Unauthorized`
 - [ ] Calling an `/admin/*` endpoint with the correct `X-Admin-API-Key` header succeeds
+- [ ] With `ADMIN_API_KEY_PREVIOUS` set, both the current `ADMIN_API_KEY` and the previous key succeed; an unrelated key and a missing key still return `401`
+- [ ] Removing `ADMIN_API_KEY_PREVIOUS` and restarting makes the old key stop working (only the current key succeeds)
 - [ ] Sending more than 10 `/chat` requests within a minute returns `429 Too Many Requests` on the 11th
 - [ ] Sending more than 30 `/admin/*` requests within a minute (with or without a valid key) returns `429 Too Many Requests`
 - [ ] Sending a `/chat` message over 2000 characters, or with more than 40 history entries, returns `422 Unprocessable Entity`

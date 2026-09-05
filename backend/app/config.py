@@ -38,6 +38,12 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 # appropriate for a single-operator MVP admin surface.
 ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
 
+# Optional previous admin key, still accepted alongside ADMIN_API_KEY
+# during a rotation so existing clients aren't locked out mid-rotation.
+# Unset (the default) means no previous key is honoured. See README.md
+# ("Rotating the admin key") for the full procedure.
+ADMIN_API_KEY_PREVIOUS = os.getenv("ADMIN_API_KEY_PREVIOUS", "").strip()
+
 # Default DB path is absolute (based on this file's location) rather than
 # relative, so the database always lands in backend/restaurant.db no matter
 # which folder you happen to run the server from. This matters especially
@@ -109,6 +115,18 @@ def validate_config():
             "WARNING: ADMIN_API_KEY is shorter than 16 characters. Use a longer, "
             "randomly generated secret to protect the admin endpoints."
         )
+
+    if ADMIN_API_KEY_PREVIOUS:
+        if ADMIN_API_KEY_PREVIOUS == ADMIN_API_KEY:
+            print(
+                "WARNING: ADMIN_API_KEY_PREVIOUS is identical to ADMIN_API_KEY, "
+                "so it has no effect. Remove it once a rotation is complete."
+            )
+        elif len(ADMIN_API_KEY_PREVIOUS) < 16:
+            print(
+                "WARNING: ADMIN_API_KEY_PREVIOUS is shorter than 16 characters. "
+                "Use a long, randomly generated secret."
+            )
 
     if problems:
         print("\n" + "=" * 70)
