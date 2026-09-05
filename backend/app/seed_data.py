@@ -33,6 +33,7 @@ def seed_if_empty(db: Session):
         map_link="https://maps.google.com/?q=The+Kings+Arms+Winchester",
         parking_notes="Free parking is available in the small car park behind the pub, "
                        "and there's a public car park on Jewry Street 3 minutes' walk away.",
+        seating_capacity=40,
     )
     db.add(restaurant)
     db.commit()
