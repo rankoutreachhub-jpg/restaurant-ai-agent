@@ -360,6 +360,23 @@ the current schema, same as any other schema change.
 
 ---
 
+### Chat awareness of dates and availability (Stage 2b)
+
+`/chat`'s restaurant context (`knowledge.py`) now also includes:
+- **`CURRENT DATE`**, so the assistant resolves "today"/"tomorrow"/
+  "Saturday" correctly instead of guessing.
+- **An `AVAILABILITY SUMMARY`** for the next 7 days: each day's opening
+  hours (or `Closed`), and how many seats are already reserved that day
+  out of `seating_capacity` — computed live from real, confirmed
+  bookings, the same data `/admin/*/bookings` manages.
+
+This is **read-only** — the assistant can now discuss availability
+using real numbers, but still cannot create, change, or cancel a
+booking through chat; it still directs customers to phone/email for
+that, same as before. AI-assisted booking through `/chat` is Stage 2c.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`

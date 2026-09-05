@@ -11,10 +11,31 @@ to only answer from that context.
 
 If a fact isn't in this context, the LLM has been instructed (see
 llm.py) to say it doesn't have that information, rather than guess.
+
+Stage 2b adds two read-only additions to that same context, still
+under the same rule — everything here is a real fact computed from the
+database, never invented:
+  - CURRENT DATE, so relative phrases ("today", "tomorrow", "Saturday")
+    resolve correctly.
+  - An AVAILABILITY SUMMARY for the next few days, aggregated from
+    app/booking.py's data (confirmed bookings + seating_capacity) so the
+    assistant can discuss availability with real numbers.
+This does NOT give the assistant the ability to create or change a
+booking through chat — that's Stage 2c. The existing system prompt rule
+in llm.py (booking isn't handled through chat yet) still applies; this
+just lets the assistant answer availability *questions* honestly in the
+meantime, using app/booking.py's own seating_capacity concept rather
+than a second, separate notion of "availability".
 """
+
+from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
 from . import models
+
+# How many days ahead the availability summary covers — deliberately
+# short to keep the context concise, per Stage 2b's brief.
+AVAILABILITY_SUMMARY_DAYS = 7
 
 
 def build_restaurant_context(db: Session, restaurant_id: int) -> str:
@@ -35,8 +56,11 @@ def build_restaurant_context(db: Session, restaurant_id: int) -> str:
 
     lines = []
 
+    today = date.today()
+    lines.append(f"CURRENT DATE: {today.isoformat()} ({today.strftime('%A')})")
+
     # --- Basic info ---
-    lines.append(f"RESTAURANT NAME: {restaurant.name}")
+    lines.append(f"\nRESTAURANT NAME: {restaurant.name}")
     lines.append(f"ADDRESS: {restaurant.address}")
     lines.append(f"PHONE: {restaurant.phone}")
     lines.append(f"EMAIL: {restaurant.email}")
@@ -59,6 +83,42 @@ def build_restaurant_context(db: Session, restaurant_id: int) -> str:
             lines.append(f"  {h.day_of_week}: Closed")
         else:
             lines.append(f"  {h.day_of_week}: {h.open_time} - {h.close_time}")
+
+    # --- Availability summary (read-only; booking creation is not
+    # wired up to chat yet — see the module docstring above) ---
+    lines.append(f"\nAVAILABILITY SUMMARY (next {AVAILABILITY_SUMMARY_DAYS} days):")
+    hours_by_day = {h.day_of_week: h for h in hours}
+    window_end = today + timedelta(days=AVAILABILITY_SUMMARY_DAYS - 1)
+    booked_seats_by_date = {}
+    confirmed_bookings = (
+        db.query(models.Booking)
+        .filter(
+            models.Booking.restaurant_id == restaurant_id,
+            models.Booking.status == "confirmed",
+            models.Booking.booking_date >= today,
+            models.Booking.booking_date <= window_end,
+        )
+        .all()
+    )
+    for booking in confirmed_bookings:
+        booked_seats_by_date[booking.booking_date] = (
+            booked_seats_by_date.get(booking.booking_date, 0) + booking.party_size
+        )
+
+    for offset in range(AVAILABILITY_SUMMARY_DAYS):
+        day = today + timedelta(days=offset)
+        day_name = day.strftime("%A")
+        day_hours = hours_by_day.get(day_name)
+        label = f"  {day.isoformat()} ({day_name})"
+        if not day_hours or day_hours.is_closed:
+            lines.append(f"{label}: Closed")
+            continue
+        booked = booked_seats_by_date.get(day, 0)
+        lines.append(
+            f"{label}: Open {day_hours.open_time}-{day_hours.close_time}. "
+            f"{booked} of {restaurant.seating_capacity} seats already reserved that day "
+            f"(spread across different times, not necessarily all at once)."
+        )
 
     # --- Menu ---
     lines.append("\nMENU:")
