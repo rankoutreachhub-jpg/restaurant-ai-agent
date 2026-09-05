@@ -1,0 +1,38 @@
+# Keeps the build context small and, more importantly, makes sure
+# nothing secret or environment-specific ever reaches the Docker
+# daemon — even though the Dockerfile's COPY instructions already only
+# pull in backend/requirements.txt and backend/app explicitly.
+
+# Version control
+.git
+.gitignore
+
+# Secrets and local runtime artifacts — never bake these into an image
+.env
+backend/.env
+backend/restaurant.db
+backend/logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+venv/
+env/
+.venv/
+backend/venv/
+
+# Not needed inside the backend image
+backend/tests/
+backend/pytest.ini
+backend/requirements-dev.txt
+frontend/
+README.md
+
+# Editor/OS junk
+.DS_Store
+.vscode/
+.idea/

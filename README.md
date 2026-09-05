@@ -522,3 +522,64 @@ that information to hand — I'll flag it to the team" rather than guessing.
   allowing all origins — but its default value still includes common
   localhost dev origins and `"null"` for ease of local testing, so set
   it to your actual domain(s) before going live.
+
+---
+
+## 9. Docker
+
+A production Dockerfile is provided at the repository root (not inside
+`backend/`) so it can `COPY` just `backend/requirements.txt` and
+`backend/app` — no tests, dev-only dependencies, or local `.env` file
+ever end up in the image.
+
+**Build** (from the repository root):
+```bash
+docker build -t restaurant-ai-agent .
+```
+
+**Run** — all configuration is supplied as real environment variables
+at container-start time, never baked into the image:
+```bash
+docker run -p 8000:8000 \
+  -e GEMINI_API_KEY=your-real-key \
+  -e ADMIN_API_KEY=your-real-admin-secret \
+  restaurant-ai-agent
+```
+The app is then reachable at `http://localhost:8000` (try `/health` or
+`/docs`). Any other setting from `backend/.env.example`
+(`ALLOWED_ORIGINS`, `DATABASE_URL`, `LOG_DIR`, `ADMIN_API_KEY_PREVIOUS`,
+...) can be passed the same way with additional `-e` flags or
+`--env-file path/to/your.env` (a real one, never committed).
+
+Notes:
+- The image runs as a non-root user and defines a `HEALTHCHECK` that
+  polls `/health` (pure Python — no `curl`/`wget` needed in the slim
+  base image).
+- Without a mounted volume, the SQLite database and log file created
+  inside the container (`/app/restaurant.db`, `/app/logs/app.log`) are
+  lost when the container is removed — expected for this stage; a
+  managed database is a later Stage 3 step (see the Stage 3 audit).
+- This does not replace the local development workflow above (a venv
+  is still the fastest local dev loop); it's the way this app runs
+  anywhere Docker is available, including in CI (see below).
+
+---
+
+## 10. Continuous Integration (CI)
+
+Every push and pull request runs `.github/workflows/ci.yml` on GitHub
+Actions, with two jobs:
+
+- **`test`** — installs `backend/requirements.txt` and
+  `backend/requirements-dev.txt` on Python 3.11, then runs the full
+  `pytest` suite from `backend/`. No secrets are configured or needed:
+  `tests/conftest.py` already supplies safe fake values for
+  `GEMINI_API_KEY`/`ADMIN_API_KEY` before the app is imported, and every
+  test that touches "Gemini" stubs the client — nothing in the suite
+  makes a real network call.
+- **`docker`** — builds the image from this repository's `Dockerfile`,
+  starts a container with fake (non-secret) key values, and polls
+  `/health` until it responds, catching any Dockerfile or startup
+  regression on every change.
+
+Both must pass before merging.
