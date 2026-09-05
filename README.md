@@ -188,6 +188,44 @@ error body, before anything is sent to Gemini.
 
 ---
 
+### CORS
+
+The API only answers cross-origin browser requests (CORS) from origins
+listed in `ALLOWED_ORIGINS` — it no longer allows every origin (`*`).
+
+If `ALLOWED_ORIGINS` isn't set in `.env`, it defaults to:
+
+```
+http://localhost:3000,http://127.0.0.1:3000,
+http://localhost:5500,http://127.0.0.1:5500,
+http://localhost:8000,http://127.0.0.1:8000,
+null
+```
+
+`"null"` is the literal `Origin` value browsers send for a page opened
+directly as a local file — i.e. exactly how this README tells you to
+open `frontend/index.html` (by double-clicking it) — so that keeps
+working out of the box. The other defaults cover common local dev
+server ports (a simple static-file server, Create React App, Vite,
+VS Code Live Server, etc.).
+
+**Before deploying**, set `ALLOWED_ORIGINS` to your real frontend
+domain(s) and drop the localhost/`null` defaults, e.g.:
+
+```
+ALLOWED_ORIGINS=https://www.example.com,https://example.com
+```
+
+A request from an origin not on the list still gets a normal response
+from the server (CORS is enforced by the browser reading response
+headers, not by the server refusing to answer) — it just won't include
+the `Access-Control-Allow-Origin` header, so a real browser blocks the
+page's JavaScript from reading it. A CORS *preflight* request (sent
+automatically by browsers before some cross-origin calls) from a
+disallowed origin gets `400 Bad Request`.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -263,6 +301,8 @@ Menu items: 11
 - [ ] Sending more than 10 `/chat` requests within a minute returns `429 Too Many Requests` on the 11th
 - [ ] Sending more than 30 `/admin/*` requests within a minute (with or without a valid key) returns `429 Too Many Requests`
 - [ ] Sending a `/chat` message over 2000 characters, or with more than 40 history entries, returns `422 Unprocessable Entity`
+- [ ] A CORS preflight request from an origin not in `ALLOWED_ORIGINS` returns `400 Bad Request`
+- [ ] A CORS preflight request from an origin in `ALLOWED_ORIGINS` (or `null`, for the file-opened frontend) succeeds with the matching `Access-Control-Allow-Origin` header
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
@@ -318,5 +358,7 @@ that information to hand — I'll flag it to the team" rather than guessing.
 - Conversation history is only kept in the browser tab (frontend
   JavaScript variable) — refreshing the page clears it. No conversations
   are persisted to the database yet.
-- CORS currently allows all origins (`*`) for ease of local testing —
-  this should be restricted to your actual domain before going live.
+- CORS is restricted to `ALLOWED_ORIGINS` (see "CORS" below) rather than
+  allowing all origins — but its default value still includes common
+  localhost dev origins and `"null"` for ease of local testing, so set
+  it to your actual domain(s) before going live.

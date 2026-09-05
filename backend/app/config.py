@@ -45,6 +45,27 @@ ADMIN_API_KEY = os.getenv("ADMIN_API_KEY", "").strip()
 _default_db_path = BACKEND_DIR / "restaurant.db"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_default_db_path}").strip()
 
+# Browser origins allowed to call this API (CORS), comma-separated.
+# Defaults cover common local dev setups out of the box:
+#   - localhost/127.0.0.1 on the ports a simple static-file server or
+#     frontend dev server would typically use
+#   - "null", the literal Origin value browsers send for a page opened
+#     directly as a local file (e.g. double-clicking frontend/index.html,
+#     as this project's README currently instructs)
+# Before deploying, set ALLOWED_ORIGINS to your real frontend domain(s)
+# and drop the localhost/"null" defaults.
+_DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:5500,http://127.0.0.1:5500,"
+    "http://localhost:8000,http://127.0.0.1:8000,"
+    "null"
+)
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", _DEFAULT_ALLOWED_ORIGINS).split(",")
+    if origin.strip()
+]
+
 
 def validate_config():
     """
