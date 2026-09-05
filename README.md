@@ -298,6 +298,68 @@ locally and are never committed.
 
 ---
 
+### Table bookings (Stage 2a)
+
+Admin-managed table bookings, protected exactly like every other
+`/admin/*` endpoint (same admin rate limiter and API key, including
+rotation support). **Not yet reachable through `/chat`** — AI-assisted
+booking is a later stage; for now, bookings are created/managed only
+through this admin API.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/admin/restaurant/{id}/bookings` | List bookings. Optional `?status=confirmed\|cancelled` and `?booking_date=YYYY-MM-DD` filters. |
+| POST | `/admin/restaurant/{id}/bookings` | Create a booking. |
+| GET | `/admin/restaurant/{id}/bookings/{booking_id}` | Get one booking. |
+| PATCH | `/admin/restaurant/{id}/bookings/{booking_id}` | Update any field, including `status` (e.g. to `"cancelled"`). |
+| DELETE | `/admin/restaurant/{id}/bookings/{booking_id}` | Permanently remove a booking (prefer cancelling via `PATCH` to keep a record). |
+
+A booking has: `customer_name`, `phone`, `email` (validated as a real
+email address), `booking_date`, `booking_time`, `party_size` (1–20),
+an optional `notes`, and `status` (`confirmed` or `cancelled`,
+defaulting to `confirmed`).
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1/bookings `
+  -Method Post -ContentType "application/json" `
+  -Headers @{ "X-Admin-API-Key" = "paste-your-real-admin-key-here" } `
+  -Body '{"customer_name":"Jane Doe","phone":"01234 567890","email":"jane@example.com","booking_date":"2026-12-24","booking_time":"19:00","party_size":4}'
+```
+
+**Overlap prevention (capacity-based, not per-table):** the restaurant
+has a single `seating_capacity` (visible/editable via the existing
+`GET`/`PATCH /admin/restaurant/{id}` endpoints — 40 in the seed data).
+Each booking is assumed to occupy its table(s) for 90 minutes starting
+at `booking_time`. A new or updated booking is rejected with
+`409 Conflict` if:
+- the restaurant is closed on that day, or the requested time falls
+  outside that day's opening hours, or
+- the combined party size of every other overlapping, non-cancelled
+  booking that day — plus this one — would exceed `seating_capacity`.
+
+Cancelling a booking (`PATCH` with `status: "cancelled"`) immediately
+frees its share of capacity for other bookings; re-confirming a
+cancelled booking re-runs this same check, since something else may
+have taken its slot in the meantime.
+
+`booking_date` must be today or later, and no more than 365 days out —
+a sanity cap, not a real business rule, same rationale as the `/chat`
+input limits.
+
+**Known limitation:** like the in-memory rate limiter, this is a
+check-then-insert rather than a database-enforced guarantee — fine at
+this MVP's single-process scale, but not a substitute for a real
+concurrency-safe reservation system at larger scale.
+
+**Schema change note:** adding bookings introduced a new `bookings`
+table and a new `seating_capacity` column on `restaurants`. Since this
+project has no migration tool (see "Known limitations" below),
+`restaurant.db` created before this change is missing that column —
+delete it (`backend/restaurant.db`) and restart so it's recreated with
+the current schema, same as any other schema change.
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -379,6 +441,9 @@ Menu items: 11
 - [ ] A CORS preflight request from an origin in `ALLOWED_ORIGINS` (or `null`, for the file-opened frontend) succeeds with the matching `Access-Control-Allow-Origin` header
 - [ ] `backend/logs/app.log` is created after the server starts, and its lines have a timestamp, level, and logger name
 - [ ] A failed `/admin/*` auth attempt is logged (client + path) without the submitted key ever appearing in `app.log`
+- [ ] Creating a booking within capacity and opening hours returns `201`; a second overlapping booking that would exceed `seating_capacity` returns `409`
+- [ ] Creating a booking outside opening hours, or on a day the restaurant is closed, returns `409`
+- [ ] Cancelling a booking (`PATCH` with `status: "cancelled"`) frees its capacity for a new overlapping booking
 - [ ] `Invoke-RestMethod http://127.0.0.1:8000/health` returns `{"status": "ok"}`
 - [ ] `restaurant.db` appears in `backend\` after first run
 - [ ] The seeded restaurant ("The Kings Arms") and its menu/FAQs are queryable from the database
@@ -427,7 +492,9 @@ that information to hand — I'll flag it to the team" rather than guessing.
 - Only one restaurant exists (ID 1) — multi-tenant support is designed
   into the database structure (every table has `restaurant_id`) but not
   yet exposed via an admin interface.
-- No booking, no calendar, no payments, no WhatsApp/SMS — future stages.
+- Table bookings exist and are admin-managed (see "Table bookings"
+  above) but aren't yet reachable through `/chat` — AI-assisted booking
+  is a later stage. No calendar sync, payments, or WhatsApp/SMS either.
 - Editing restaurant data requires editing `seed_data.py` directly and
   restarting with a fresh database (delete `restaurant.db` and restart).
   An admin editing interface is a future stage.

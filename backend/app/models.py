@@ -10,7 +10,9 @@ different restaurant_id values, and the existing queries already filter
 by restaurant_id. This is the "future-proofing" the user asked for.
 """
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text
+from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, Date, Time, DateTime
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -25,10 +27,15 @@ class Restaurant(Base):
     email = Column(String, nullable=False)
     map_link = Column(String, nullable=True)
     parking_notes = Column(String, nullable=True)
+    # Total seats available at any one time — the basis for the
+    # capacity-based overlap check in app/booking.py. Not per-table;
+    # see that module's docstring for why.
+    seating_capacity = Column(Integer, nullable=False, default=40)
 
     opening_hours = relationship("OpeningHours", back_populates="restaurant")
     menu_items = relationship("MenuItem", back_populates="restaurant")
     faqs = relationship("FAQ", back_populates="restaurant")
+    bookings = relationship("Booking", back_populates="restaurant")
 
 
 class OpeningHours(Base):
@@ -67,3 +74,21 @@ class FAQ(Base):
     answer = Column(Text, nullable=False)
 
     restaurant = relationship("Restaurant", back_populates="faqs")
+
+
+class Booking(Base):
+    __tablename__ = "bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
+    customer_name = Column(String, nullable=False)
+    phone = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    booking_date = Column(Date, nullable=False, index=True)
+    booking_time = Column(Time, nullable=False)
+    party_size = Column(Integer, nullable=False)
+    status = Column(String, nullable=False, default="confirmed")  # "confirmed" | "cancelled"
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant = relationship("Restaurant", back_populates="bookings")

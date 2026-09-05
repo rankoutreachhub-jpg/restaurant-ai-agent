@@ -24,6 +24,7 @@ os.environ["LOG_DIR"] = tempfile.mkdtemp(suffix="-logs")
 import pytest
 from fastapi.testclient import TestClient
 
+from app.database import SessionLocal
 from app.main import app
 from app.rate_limit import admin_rate_limiter, chat_rate_limiter
 
@@ -40,6 +41,21 @@ def client():
 @pytest.fixture()
 def admin_headers():
     return {"X-Admin-API-Key": ADMIN_API_KEY}
+
+
+@pytest.fixture()
+def db(client):
+    """
+    A direct DB session for tests that call service-layer functions
+    (e.g. app/booking.py) without going through the HTTP layer. Depends
+    on `client` purely to ensure the schema exists and seed data has
+    run first.
+    """
+    session = SessionLocal()
+    try:
+        yield session
+    finally:
+        session.close()
 
 
 @pytest.fixture(autouse=True)

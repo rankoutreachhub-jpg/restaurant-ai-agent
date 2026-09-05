@@ -47,6 +47,7 @@ def get_restaurant(
         "email": restaurant.email,
         "map_link": restaurant.map_link,
         "parking_notes": restaurant.parking_notes,
+        "seating_capacity": restaurant.seating_capacity,
     }
 
 
@@ -88,6 +89,7 @@ def update_restaurant(
             "email": restaurant.email,
             "map_link": restaurant.map_link,
             "parking_notes": restaurant.parking_notes,
+            "seating_capacity": restaurant.seating_capacity,
         },
     }
 
