@@ -245,6 +245,57 @@ def test_tool_round_trip_failure_falls_back_to_generic_500(client, monkeypatch):
     }
 
 
+def test_tool_call_cannot_redirect_a_booking_to_another_restaurant(
+    client, monkeypatch, db, second_restaurant
+):
+    """
+    Regression test for the /chat tenant boundary (Stage 3 Step 3): a
+    chat request is always scoped to the restaurant_id in the request
+    body, resolved server-side in routers/chat.py BEFORE the model is
+    ever called. schemas.BookingCreate has no restaurant_id field, so
+    even a compromised/malicious model that includes one in its tool
+    call arguments (as simulated here) has it silently ignored by
+    Pydantic — the booking is created for the request's own restaurant,
+    never the one named in the tool call.
+    """
+    d = _fresh_date()
+    args = {
+        "customer_name": "Redirect Attempt",
+        "phone": "01234 666666",
+        "email": "redirect-attempt@example.com",
+        "booking_date": d.isoformat(),
+        "booking_time": _SAFE_TIME,
+        "party_size": 2,
+        "restaurant_id": second_restaurant,  # not a real BookingCreate field
+    }
+    _stub_tool_round_trip(monkeypatch, args, "You're booked in!")
+    before_other = _booking_count(db, restaurant_id=second_restaurant)
+
+    response = client.post(
+        "/chat", json={"message": "Book me a table", "history": [], "restaurant_id": 1}
+    )
+
+    assert response.status_code == 200
+    created = (
+        db.query(models.Booking)
+        .filter(models.Booking.booking_date == d, models.Booking.customer_name == "Redirect Attempt")
+        .one()
+    )
+    assert created.restaurant_id == 1
+    assert _booking_count(db, restaurant_id=second_restaurant) == before_other
+
+
+def test_booking_create_schema_has_no_restaurant_id_field():
+    """Locks in the boundary above at the schema level: if someone ever
+    added restaurant_id to BookingCreate (e.g. to support some future
+    feature), the tool handler in routers/chat.py would start trusting
+    an LLM-supplied restaurant_id, silently reopening the redirect this
+    stage closes off."""
+    from app import schemas
+
+    assert "restaurant_id" not in schemas.BookingCreate.model_fields
+
+
 def test_chat_driven_booking_does_not_log_pii(client, monkeypatch):
     from app.logging_config import LOG_FILE
 

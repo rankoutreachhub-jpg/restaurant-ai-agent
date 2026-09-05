@@ -35,6 +35,7 @@ command.upgrade(Config(str(_alembic_ini)), "head")
 import pytest
 from fastapi.testclient import TestClient
 
+from app import models
 from app.database import SessionLocal
 from app.main import app
 from app.rate_limit import admin_rate_limiter, chat_rate_limiter
@@ -67,6 +68,73 @@ def db(client):
         yield session
     finally:
         session.close()
+
+
+@pytest.fixture()
+def second_restaurant(client, admin_headers):
+    """
+    A second, fully independent restaurant (id != 1) for cross-tenant
+    authorization tests (Stage 3 Step 3). Created through the real
+    /admin/platform/restaurants endpoint with the superadmin key, then
+    given opening hours via a direct DB insert — there is deliberately
+    no admin endpoint to *create* opening-hours rows (only to update
+    existing ones; see routers/admin.py), so this mirrors
+    app/seed_data.py's own direct-insert approach for that piece.
+    Returns the new restaurant's id.
+    """
+    response = client.post(
+        "/admin/platform/restaurants",
+        json={
+            "name": "The Anchor",
+            "address": "1 Quay Street, Bristol, BS1 4EF",
+            "phone": "0117 000 0000",
+            "email": "hello@theanchor-bristol.co.uk",
+            "seating_capacity": 30,
+        },
+        headers=admin_headers,
+    )
+    assert response.status_code == 201
+    restaurant_id = response.json()["restaurant"]["id"]
+
+    session = SessionLocal()
+    try:
+        for day in [
+            "Monday", "Tuesday", "Wednesday", "Thursday",
+            "Friday", "Saturday", "Sunday",
+        ]:
+            session.add(models.OpeningHours(
+                restaurant_id=restaurant_id,
+                day_of_week=day,
+                open_time="12:00",
+                close_time="22:00",
+                is_closed=False,
+            ))
+        session.commit()
+    finally:
+        session.close()
+
+    return restaurant_id
+
+
+@pytest.fixture()
+def scoped_admin_key(client, admin_headers):
+    """
+    Factory fixture: scoped_admin_key(restaurant_ids) creates a real
+    restaurant-scoped admin user via /admin/platform/admin-users (using
+    the superadmin key) and returns (admin_user_id, headers) using the
+    key actually issued by the API — not a hand-constructed one.
+    """
+    def _make(restaurant_ids, label="test scoped admin"):
+        response = client.post(
+            "/admin/platform/admin-users",
+            json={"label": label, "restaurant_ids": restaurant_ids},
+            headers=admin_headers,
+        )
+        assert response.status_code == 201
+        body = response.json()
+        return body["id"], {"X-Admin-API-Key": body["api_key"]}
+
+    return _make
 
 
 @pytest.fixture(autouse=True)
