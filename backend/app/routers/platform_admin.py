@@ -103,6 +103,16 @@ def create_restaurant(data: schemas.RestaurantCreate, db: Session = Depends(get_
 
 
 # =========================================================
+# LIST RESTAURANTS (Stage 3 Step 6A: powers the dashboard's
+# restaurant switcher/onboarding screen for a superadmin)
+# =========================================================
+
+@router.get("/restaurants", response_model=list[schemas.RestaurantOut])
+def list_restaurants(db: Session = Depends(get_db)):
+    return db.query(models.Restaurant).order_by(models.Restaurant.id).all()
+
+
+# =========================================================
 # CREATE ADMIN USER (issues a scoped key, shown once)
 # =========================================================
 

@@ -35,6 +35,28 @@ def test_scoped_admin_key_cannot_use_platform_endpoints(client, second_restauran
     response = client.get("/admin/platform/admin-users", headers=headers)
     assert response.status_code == 403
 
+    response = client.get("/admin/platform/restaurants", headers=headers)
+    assert response.status_code == 403
+
+
+def test_list_restaurants_requires_a_key_at_all(client):
+    response = client.get("/admin/platform/restaurants")
+    assert response.status_code == 401
+
+
+def test_list_restaurants_with_superadmin_key_includes_all_restaurants(
+    client, second_restaurant, admin_headers
+):
+    response = client.get("/admin/platform/restaurants", headers=admin_headers)
+    assert response.status_code == 200
+    ids = {r["id"] for r in response.json()}
+    assert {1, second_restaurant} <= ids
+    for restaurant in response.json():
+        assert set(restaurant.keys()) == {
+            "id", "name", "address", "phone", "email",
+            "map_link", "parking_notes", "seating_capacity",
+        }
+
 
 def test_create_restaurant_succeeds_with_superadmin_key(client, admin_headers):
     response = client.post(

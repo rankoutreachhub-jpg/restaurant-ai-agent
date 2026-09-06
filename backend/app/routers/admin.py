@@ -25,6 +25,27 @@ router = APIRouter(
 
 
 # =========================================================
+# WHOAMI
+# =========================================================
+# Stage 3 Step 6A: lets an admin-facing client (the dashboard) discover
+# its own scope without guessing — never anyone else's. Superadmin gets
+# restaurant_ids=None (meaning "every restaurant"; the dashboard then
+# calls GET /admin/platform/restaurants for the actual list). A scoped
+# admin gets exactly its own granted restaurant_ids, the same set
+# require_restaurant_access already enforces on every other route.
+
+@router.get("/me", response_model=schemas.AdminMeOut)
+def get_current_admin_identity(current_admin: AdminIdentity = Depends(get_current_admin)):
+    return schemas.AdminMeOut(
+        is_superadmin=current_admin.is_superadmin,
+        restaurant_ids=(
+            None if current_admin.is_superadmin
+            else sorted(current_admin.allowed_restaurant_ids or [])
+        ),
+    )
+
+
+# =========================================================
 # GET RESTAURANT
 # =========================================================
 

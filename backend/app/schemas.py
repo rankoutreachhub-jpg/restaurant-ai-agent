@@ -280,6 +280,28 @@ class AdminUserUpdate(BaseModel):
     label: Optional[str] = Field(default=None, min_length=1, max_length=200)
 
 
+# --- Admin identity (Stage 3 Step 6A: dashboard) ---
+
+class AdminMeOut(BaseModel):
+    is_superadmin: bool
+    # None means "every restaurant" (superadmin). For a scoped admin,
+    # the exact set require_restaurant_access already enforces.
+    restaurant_ids: Optional[List[int]] = None
+
+
+class RestaurantOut(BaseModel):
+    id: int
+    name: str
+    address: str
+    phone: str
+    email: str
+    map_link: Optional[str] = None
+    parking_notes: Optional[str] = None
+    seating_capacity: int
+
+    model_config = {"from_attributes": True}
+
+
 # --- Conversations (Stage 3 Step 5: persistence) ---
 # Read-only admin views. public_token is deliberately never included —
 # it's the anonymous-customer-facing handle, not something an admin
