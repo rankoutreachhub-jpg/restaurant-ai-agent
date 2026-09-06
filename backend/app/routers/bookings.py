@@ -3,10 +3,10 @@ Admin booking management endpoints.
 
 Kept as its own router (rather than folded into routers/admin.py, which
 is already sizeable) but protected identically: the same admin rate
-limiter and API key dependency are applied at the router level, so
-every rule in app/auth.py (including key rotation) and app/rate_limit.py
-applies to booking management exactly as it does to every other
-/admin/* route.
+limiter, authentication (get_current_admin), and restaurant-scope
+authorization (require_restaurant_access) apply to booking management
+exactly as they do to every other /admin/* route — see routers/admin.py
+for why those are declared per-handler rather than at router level.
 """
 
 from datetime import date
@@ -16,7 +16,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
-from ..auth import verify_admin_key
+from ..auth import AdminIdentity, get_current_admin
+from ..authz import require_restaurant_access
 from ..booking import BookingConflictError, create_booking, update_booking
 from ..database import get_db
 from ..rate_limit import admin_rate_limiter
@@ -24,15 +25,8 @@ from ..rate_limit import admin_rate_limiter
 router = APIRouter(
     prefix="/admin",
     tags=["Admin - Bookings"],
-    dependencies=[Depends(admin_rate_limiter), Depends(verify_admin_key)],
+    dependencies=[Depends(admin_rate_limiter)],
 )
-
-
-def _get_restaurant_or_404(db: Session, restaurant_id: int) -> models.Restaurant:
-    restaurant = db.query(models.Restaurant).filter(models.Restaurant.id == restaurant_id).first()
-    if not restaurant:
-        raise HTTPException(status_code=404, detail="Restaurant not found")
-    return restaurant
 
 
 def _get_booking_or_404(db: Session, restaurant_id: int, booking_id: int) -> models.Booking:
@@ -56,8 +50,9 @@ def list_bookings(
     status_filter: Optional[schemas.BookingStatus] = Query(default=None, alias="status"),
     booking_date: Optional[date] = Query(default=None),
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    _get_restaurant_or_404(db, restaurant_id)
+    require_restaurant_access(restaurant_id, db, current_admin)
 
     query = db.query(models.Booking).filter(models.Booking.restaurant_id == restaurant_id)
     if status_filter:
@@ -81,8 +76,9 @@ def create_booking_endpoint(
     restaurant_id: int,
     data: schemas.BookingCreate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = _get_restaurant_or_404(db, restaurant_id)
+    restaurant = require_restaurant_access(restaurant_id, db, current_admin)
     try:
         return create_booking(db, restaurant, data)
     except BookingConflictError as e:
@@ -94,8 +90,13 @@ def create_booking_endpoint(
 # =========================================================
 
 @router.get("/restaurant/{restaurant_id}/bookings/{booking_id}", response_model=schemas.BookingOut)
-def get_booking(restaurant_id: int, booking_id: int, db: Session = Depends(get_db)):
-    _get_restaurant_or_404(db, restaurant_id)
+def get_booking(
+    restaurant_id: int,
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
     return _get_booking_or_404(db, restaurant_id, booking_id)
 
 
@@ -109,8 +110,9 @@ def update_booking_endpoint(
     booking_id: int,
     data: schemas.BookingUpdate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = _get_restaurant_or_404(db, restaurant_id)
+    restaurant = require_restaurant_access(restaurant_id, db, current_admin)
     booking = _get_booking_or_404(db, restaurant_id, booking_id)
     try:
         return update_booking(db, restaurant, booking, data)
@@ -123,8 +125,13 @@ def update_booking_endpoint(
 # =========================================================
 
 @router.delete("/restaurant/{restaurant_id}/bookings/{booking_id}")
-def delete_booking(restaurant_id: int, booking_id: int, db: Session = Depends(get_db)):
-    _get_restaurant_or_404(db, restaurant_id)
+def delete_booking(
+    restaurant_id: int,
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
     booking = _get_booking_or_404(db, restaurant_id, booking_id)
 
     db.delete(booking)

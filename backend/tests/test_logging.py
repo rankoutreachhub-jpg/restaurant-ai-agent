@@ -87,6 +87,31 @@ def test_rate_limit_exceeded_is_logged(client, admin_headers):
     assert config.ADMIN_API_KEY not in content
 
 
+def test_admin_user_key_creation_and_rotation_never_logs_plaintext_key(
+    client, second_restaurant, admin_headers
+):
+    created = client.post(
+        "/admin/platform/admin-users",
+        json={"label": "log check", "restaurant_ids": [second_restaurant]},
+        headers=admin_headers,
+    ).json()
+    plaintext_key = created["api_key"]
+    admin_user_id = created["id"]
+
+    rotated = client.post(
+        f"/admin/platform/admin-users/{admin_user_id}/rotate-key", headers=admin_headers
+    ).json()
+    rotated_key = rotated["api_key"]
+
+    content = _read_log()
+    assert plaintext_key not in content
+    assert rotated_key not in content
+    # The secret half specifically must never appear, even split across
+    # a differently-formatted log line.
+    assert plaintext_key.split(".")[1] not in content
+    assert rotated_key.split(".")[1] not in content
+
+
 def test_unhandled_chat_error_is_logged_to_file(client, monkeypatch):
     from app import llm
 

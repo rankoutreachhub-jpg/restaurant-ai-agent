@@ -4,7 +4,7 @@ FastAPI uses these to validate requests and to auto-generate the
 interactive API docs at /docs.
 """
 
-from datetime import date as date_type, time as time_type
+from datetime import date as date_type, datetime, time as time_type
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Literal, Optional
@@ -152,3 +152,44 @@ class BookingOut(BaseModel):
     notes: Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+
+# --- Platform admin (Stage 3 Step 3: multi-tenant authorization) ---
+# Superadmin-only endpoints for onboarding restaurants and issuing/
+# managing restaurant-scoped admin keys. See app/routers/platform_admin.py.
+
+class RestaurantCreate(BaseModel):
+    name: str = Field(..., min_length=1)
+    address: str = Field(..., min_length=1)
+    phone: str = Field(..., min_length=1)
+    email: EmailStr
+    map_link: Optional[str] = None
+    parking_notes: Optional[str] = None
+    seating_capacity: int = Field(default=40, ge=1)
+
+
+class AdminUserCreate(BaseModel):
+    label: str = Field(..., min_length=1, max_length=200)
+    restaurant_ids: List[int] = Field(..., min_length=1)
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    label: str
+    is_active: bool
+    created_at: datetime
+    restaurant_ids: List[int]
+
+    model_config = {"from_attributes": True}
+
+
+class AdminUserCreateOut(AdminUserOut):
+    # The plaintext key is only ever present in this creation/rotation
+    # response — it is never retrievable again afterwards (only its
+    # hash is stored; see app/admin_keys.py).
+    api_key: str
+
+
+class AdminUserUpdate(BaseModel):
+    is_active: Optional[bool] = None
+    label: Optional[str] = Field(default=None, min_length=1, max_length=200)

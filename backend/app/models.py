@@ -12,7 +12,7 @@ by restaurant_id. This is the "future-proofing" the user asked for.
 
 from datetime import datetime
 
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, Date, Time, DateTime
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, Text, Date, Time, DateTime, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
 
@@ -92,3 +92,49 @@ class Booking(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     restaurant = relationship("Restaurant", back_populates="bookings")
+
+
+class AdminUser(Base):
+    """
+    A restaurant-scoped admin identity (Stage 3 Step 3 — multi-tenant
+    authorization). This is separate from, and does not replace, the
+    platform-superadmin ADMIN_API_KEY/ADMIN_API_KEY_PREVIOUS env vars
+    (see app/auth.py) — those remain a config-only identity with implicit
+    access to every restaurant, used for platform operations like
+    onboarding a restaurant or issuing its first AdminUser. Rows here are
+    for day-to-day admins scoped to one or more specific restaurants.
+
+    Only a hash of the issued API key is ever stored (see
+    app/admin_keys.py) — the plaintext is returned exactly once, at
+    creation or rotation time, and is not recoverable afterwards.
+    key_id is a public, non-secret lookup handle (indexed) so verifying
+    a key doesn't require scanning and comparing against every row.
+    """
+    __tablename__ = "admin_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_id = Column(String, unique=True, nullable=False, index=True)
+    key_hash = Column(String, nullable=False)
+    label = Column(String, nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant_access = relationship(
+        "AdminRestaurantAccess", back_populates="admin_user", cascade="all, delete-orphan"
+    )
+
+
+class AdminRestaurantAccess(Base):
+    """One (admin_user, restaurant) grant. An AdminUser may have several
+    of these (multi-restaurant admin); the unique constraint prevents
+    duplicate grants of the same restaurant to the same admin user."""
+    __tablename__ = "admin_restaurant_access"
+    __table_args__ = (UniqueConstraint("admin_user_id", "restaurant_id", name="uq_admin_restaurant_access"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    admin_user_id = Column(Integer, ForeignKey("admin_users.id"), nullable=False, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    admin_user = relationship("AdminUser", back_populates="restaurant_access")
+    restaurant = relationship("Restaurant")

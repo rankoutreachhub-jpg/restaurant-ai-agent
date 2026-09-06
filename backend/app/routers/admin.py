@@ -3,20 +3,23 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models, schemas
-from ..auth import verify_admin_key
+from ..auth import AdminIdentity, get_current_admin
+from ..authz import require_restaurant_access
 from ..rate_limit import admin_rate_limiter
 
 
 router = APIRouter(
     prefix="/admin",
     tags=["Admin"],
-    # Applied to every route on this router, current and future (menu,
-    # opening hours, and any booking-management endpoints added later) —
-    # so nothing under /admin/* is reachable without a valid admin key.
-    # Rate limiting runs before the key check so brute-forcing/flooding
-    # the admin key is throttled too, not just successfully authenticated
-    # requests.
-    dependencies=[Depends(admin_rate_limiter), Depends(verify_admin_key)],
+    # Rate limiting is applied to every route on this router, current
+    # and future, so brute-forcing/flooding the admin API is throttled
+    # before the key check even runs. Authentication (get_current_admin)
+    # and restaurant-scope authorization (require_restaurant_access) are
+    # each declared as a parameter on every handler below instead of
+    # here, because a handler needs the resolved AdminIdentity itself to
+    # check which restaurant_id(s) it may touch — not just the fact that
+    # *some* valid key was presented.
+    dependencies=[Depends(admin_rate_limiter)],
 )
 
 
@@ -28,16 +31,9 @@ router = APIRouter(
 def get_restaurant(
     restaurant_id: int,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    restaurant = require_restaurant_access(restaurant_id, db, current_admin)
 
     return {
         "id": restaurant.id,
@@ -60,16 +56,9 @@ def update_restaurant(
     restaurant_id: int,
     data: schemas.RestaurantUpdate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    restaurant = require_restaurant_access(restaurant_id, db, current_admin)
 
     updates = data.model_dump(exclude_unset=True)
 
@@ -102,16 +91,9 @@ def update_restaurant(
 def get_menu(
     restaurant_id: int,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    require_restaurant_access(restaurant_id, db, current_admin)
 
     menu_items = db.query(models.MenuItem).filter(
         models.MenuItem.restaurant_id == restaurant_id
@@ -129,16 +111,9 @@ def create_menu_item(
     restaurant_id: int,
     data: schemas.MenuItemCreate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    require_restaurant_access(restaurant_id, db, current_admin)
 
     menu_item = models.MenuItem(
         restaurant_id=restaurant_id,
@@ -177,7 +152,10 @@ def update_menu_item(
     menu_item_id: int,
     data: schemas.MenuItemUpdate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
     menu_item = db.query(models.MenuItem).filter(
         models.MenuItem.id == menu_item_id,
         models.MenuItem.restaurant_id == restaurant_id,
@@ -220,7 +198,10 @@ def delete_menu_item(
     restaurant_id: int,
     menu_item_id: int,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
     menu_item = db.query(models.MenuItem).filter(
         models.MenuItem.id == menu_item_id,
         models.MenuItem.restaurant_id == restaurant_id,
@@ -249,16 +230,9 @@ def delete_menu_item(
 def get_opening_hours(
     restaurant_id: int,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    require_restaurant_access(restaurant_id, db, current_admin)
 
     opening_hours = db.query(models.OpeningHours).filter(
         models.OpeningHours.restaurant_id == restaurant_id
@@ -277,16 +251,9 @@ def update_opening_hours(
     day_of_week: str,
     data: schemas.OpeningHoursUpdate,
     db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
 ):
-    restaurant = db.query(models.Restaurant).filter(
-        models.Restaurant.id == restaurant_id
-    ).first()
-
-    if not restaurant:
-        raise HTTPException(
-            status_code=404,
-            detail="Restaurant not found"
-        )
+    require_restaurant_access(restaurant_id, db, current_admin)
 
     opening_hours = db.query(models.OpeningHours).filter(
         models.OpeningHours.restaurant_id == restaurant_id,

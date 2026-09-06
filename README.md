@@ -143,11 +143,21 @@ backend only.
 ### Admin authentication
 
 Every `/admin/*` endpoint (restaurant details, menu, opening hours, and
-any booking-management endpoints added later) requires a valid
-`X-Admin-API-Key` header matching the `ADMIN_API_KEY` value in `.env`.
-Requests without it, or with the wrong value, get a `401 Unauthorized`
+booking management) requires a valid `X-Admin-API-Key` header. Requests
+without it, or with an invalid/inactive value, get a `401 Unauthorized`
 response — the `/chat` and `/health` endpoints are unaffected and need
 no key.
+
+Two kinds of admin key are accepted:
+
+- **Platform superadmin** — the `ADMIN_API_KEY` value in `.env` (below).
+  Has access to **every** restaurant. Intended for platform operations
+  (onboarding a restaurant, issuing its first admin key) rather than
+  routine day-to-day restaurant admin work.
+- **Restaurant-scoped admin** — a per-restaurant key issued through the
+  `/admin/platform/admin-users` endpoints (see "Multi-tenant admin
+  access" below), only ever valid for the restaurant(s) it was
+  explicitly granted.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/1 `
@@ -189,6 +199,66 @@ Notes:
 - Keep the transition window short; the whole point of
   `ADMIN_API_KEY_PREVIOUS` is to make rotation safe, not to run two
   keys indefinitely.
+
+---
+
+### Multi-tenant admin access (Stage 3 Step 3)
+
+Multiple restaurants can now share the same database, each with its own
+admin key(s) that can only ever touch that restaurant's data. This is
+managed through a `/admin/platform/*` API that **only accepts the
+platform superadmin key** (`ADMIN_API_KEY`/`ADMIN_API_KEY_PREVIOUS`) —
+a restaurant-scoped key can never create other admin users or grant
+itself access to a restaurant it doesn't already have.
+
+**Onboard a new restaurant:**
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/platform/restaurants -Method Post `
+  -Headers @{ "X-Admin-API-Key" = "your-superadmin-key" } `
+  -ContentType "application/json" `
+  -Body '{"name": "The Anchor", "address": "1 Quay St", "phone": "0117 000 0000", "email": "hello@theanchor.example.com", "seating_capacity": 30}'
+```
+
+**Issue that restaurant an admin key** (`restaurant_ids` can list more
+than one restaurant, for an admin who manages several):
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/platform/admin-users -Method Post `
+  -Headers @{ "X-Admin-API-Key" = "your-superadmin-key" } `
+  -ContentType "application/json" `
+  -Body '{"label": "The Anchor - front of house", "restaurant_ids": [2]}'
+```
+The response's `api_key` field is the **only time** the plaintext key is
+ever shown — only its hash is stored, so save it immediately. Give this
+key to that restaurant's admin; every `/admin/restaurant/2/...` request
+they make with it works exactly like the superadmin key does today, and
+every request they make against a *different* restaurant_id gets the
+same `404 Restaurant not found` as if it didn't exist — never a `403`,
+so an admin key can't be used to even confirm another restaurant's ID
+is in use.
+
+**Other platform-admin operations** (all require the superadmin key):
+| Method & path | Purpose |
+|---|---|
+| `GET /admin/platform/admin-users` | List admin users (never returns key material) |
+| `GET /admin/platform/admin-users/{id}` | Inspect one admin user |
+| `PATCH /admin/platform/admin-users/{id}` | Deactivate (`is_active: false`) / reactivate / relabel |
+| `POST /admin/platform/admin-users/{id}/rotate-key` | Issue a new key immediately; the old one stops working at once (no overlap window, unlike superadmin rotation above) |
+| `POST /admin/platform/admin-users/{id}/restaurants/{restaurant_id}` | Grant an additional restaurant |
+| `DELETE /admin/platform/admin-users/{id}/restaurants/{restaurant_id}` | Revoke a restaurant grant |
+
+Notes:
+- This is purely additive: the existing single `ADMIN_API_KEY` workflow
+  from Stages 1-2 keeps working exactly as before, with implicit access
+  to every restaurant. You don't need to touch any of this to keep
+  running a single restaurant.
+- A restaurant-scoped key is never logged or returned in any response
+  except its own creation/rotation call.
+- There's currently no endpoint to *create* a new restaurant's opening
+  hours (only `PATCH .../opening-hours/{day}` to update an existing
+  day) — after onboarding a restaurant, its opening-hours rows need a
+  direct database insert (the same way `app/seed_data.py` creates the
+  first restaurant's). A proper onboarding-completeness endpoint is a
+  natural follow-up, not part of this authorization stage.
 
 ---
 
