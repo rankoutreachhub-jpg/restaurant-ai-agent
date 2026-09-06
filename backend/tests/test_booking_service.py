@@ -158,10 +158,22 @@ def test_update_booking_slot_is_rechecked_for_conflicts(db):
 
     create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
     create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
+    # _SAFE_TIME (12:00) rather than a hardcoded evening time: it must
+    # not overlap the 18:00 slot above (12:00-13:30 vs 18:00-19:30 don't)
+    # AND fall within opening hours regardless of which weekday `d` is —
+    # a fixed clock time near closing (e.g. 21:00) can drift outside
+    # hours depending on the weekday _ANCHOR lands on (some seeded days
+    # close as early as 21:00-22:00), which is exactly what previously
+    # made this test's success depend on the calendar date it happened
+    # to run on rather than on the conflict-recheck behaviour it tests.
     other = create_booking(
-        db, restaurant, _make_booking_data(booking_date=d, party_size=1, booking_time=time(21, 0))
+        db, restaurant, _make_booking_data(booking_date=d, party_size=1, booking_time=_SAFE_TIME)
     )
 
+    # Moving `other` into the already-full 18:00 slot must be rejected —
+    # this is what actually verifies update_booking() re-runs the
+    # availability check against the *new* slot rather than trusting
+    # the slot it was created in.
     with pytest.raises(BookingConflictError):
         update_booking(db, restaurant, other, schemas.BookingUpdate(booking_time=time(18, 0)))
 
