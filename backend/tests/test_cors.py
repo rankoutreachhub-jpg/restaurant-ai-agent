@@ -65,3 +65,35 @@ def test_disallowed_origin_gets_no_cors_header_on_real_request(client):
 def test_wildcard_is_not_used():
     """Regression guard: CORS must never fall back to allow_origins=["*"]."""
     assert "*" not in config.ALLOWED_ORIGINS
+
+
+def test_conversation_token_header_is_exposed_on_allowed_origin(client, monkeypatch):
+    """
+    Stage 3 Step 5: a cross-origin frontend on an allowed origin must be
+    able to read X-Conversation-Token via response.headers.get(...) in
+    the browser — which requires Access-Control-Expose-Headers, not just
+    the header being present on the wire. This must never widen the
+    origin allowlist itself.
+    """
+    from types import SimpleNamespace
+    from app import llm
+
+    def fake_generate_content(model, contents, config):
+        return SimpleNamespace(
+            text="Hiya!",
+            function_calls=[],
+            candidates=[SimpleNamespace(content=SimpleNamespace(role="model", parts=[]))],
+        )
+
+    monkeypatch.setattr(llm.client.models, "generate_content", fake_generate_content)
+
+    allowed = config.ALLOWED_ORIGINS[0]
+    response = client.post(
+        "/chat",
+        json={"message": "hi", "history": [], "restaurant_id": 1},
+        headers={"Origin": allowed},
+    )
+    assert response.status_code == 200
+    assert "X-Conversation-Token" in response.headers
+    exposed = response.headers.get("access-control-expose-headers", "")
+    assert "X-Conversation-Token" in exposed

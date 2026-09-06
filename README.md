@@ -501,6 +501,68 @@ that, same as before. AI-assisted booking through `/chat` is Stage 2c.
 
 ---
 
+### Conversation persistence (Stage 3 Step 5)
+
+`/chat` now persists every conversation server-side instead of relying
+entirely on the client to remember it. This is fully backward
+compatible: the response body is still exactly `{"reply": "..."}`, and
+sending a `conversation_token` is optional.
+
+**Resuming a conversation:**
+1. The first call for a new conversation gets back an
+   `X-Conversation-Token` response header — an opaque, high-entropy
+   value, not a small guessable number. It identifies no customer and
+   grants no admin privilege; it's simply the handle that lets a later
+   call resume this one conversation's history.
+2. Send that value back as `conversation_token` in the request body on
+   the next call to continue the same conversation — the server then
+   loads its own persisted history (capped at 40 turns, same limit as
+   before) instead of trusting whatever `history` the client sends.
+3. An unknown token, or a token that belongs to a **different**
+   `restaurant_id` than the one in the request, is treated exactly like
+   no token at all — a new conversation silently starts. This is
+   deliberate: the endpoint never confirms or denies that a given token
+   belongs to someone else.
+4. Omitting `conversation_token` entirely behaves exactly as it always
+   has — the client's own `history` is trusted, nothing overrides it.
+
+**What's stored:** each turn's `role` (`user`/`assistant` only — the
+system prompt and restaurant context are rebuilt fresh from live data
+on every call and never persisted, so a stored conversation never goes
+stale relative to menu/hours/FAQ changes), `content` (same 2000-
+character cap as today), and whether that assistant reply followed a
+booking-tool call. No customer-identity columns exist on the
+conversation record itself — only the messages, whatever the customer
+actually typed.
+
+**Admin access** (read-only, reuses the existing admin key + restaurant
+scoping exactly like every other resource):
+| Method & path | Purpose |
+|---|---|
+| `GET /admin/restaurant/{id}/conversations` | List conversations, most recent first (`limit`/`offset`, max 200) |
+| `GET /admin/restaurant/{id}/conversations/{conversation_id}/messages` | That conversation's messages, oldest first |
+
+These use the conversation's plain integer id, never the public token —
+admins already have an authenticated key; there's no reason to expose
+the anonymous-customer-facing handle to them.
+
+Notes:
+- Message content can contain whatever PII a customer typed (name,
+  phone, email) during a booking conversation — the same trust boundary
+  as the existing `bookings` table, not a new category of risk. Never
+  logged; see `app/conversations.py` and the logging tests.
+- No retention/deletion policy is enforced yet — `created_at`/
+  `updated_at` are exactly what a future scheduled cleanup job would
+  filter on, but no such job exists today. Treat persisted conversations
+  as kept indefinitely until that's built.
+- The current `frontend/index.html` doesn't yet capture/resend
+  `X-Conversation-Token` — until it's updated, each of its calls starts
+  its own single-exchange conversation server-side (harmless: Gemini
+  still gets full context via the client's own `history`, exactly as
+  before this stage).
+
+---
+
 ## 4. Exact commands to test each part
 
 ### D. Test `/health`
@@ -639,16 +701,19 @@ that information to hand — I'll flag it to the team" rather than guessing.
   database access required. What's still missing is a browser-based
   admin *interface*; every admin/platform-admin operation today is an
   authenticated HTTP call (curl/PowerShell/Postman), not a UI.
-- Table bookings exist and are admin-managed (see "Table bookings"
-  above) but aren't yet reachable through `/chat` — AI-assisted booking
-  is a later stage. No calendar sync, payments, or WhatsApp/SMS either.
+- Table bookings exist and are both admin-managed (see "Table bookings"
+  above) and reachable through AI-assisted `/chat` booking via Gemini
+  function calling (`app/llm.py`). No calendar sync, payments, or
+  WhatsApp/SMS integration yet.
 - Restaurant/menu/hours data is editable via the `/admin/*` API (see
   "Admin authentication" above), but there's still no admin *interface*
   — a future stage. Schema changes themselves now go through Alembic
   (see "Database migrations" below), not editing `seed_data.py`.
-- Conversation history is only kept in the browser tab (frontend
-  JavaScript variable) — refreshing the page clears it. No conversations
-  are persisted to the database yet.
+- Conversations are now persisted server-side (see "Conversation
+  persistence" above), but the current `frontend/index.html` doesn't
+  yet capture/resend the resumption token, so its own conversations
+  still fragment into single-exchange records until it's updated — see
+  that section's notes. No retention/deletion policy is enforced yet.
 - CORS is restricted to `ALLOWED_ORIGINS` (see "CORS" below) rather than
   allowing all origins — but its default value still includes common
   localhost dev origins and `"null"` for ease of local testing, so set

@@ -44,6 +44,14 @@ class ChatRequest(BaseModel):
         default=1,
         description="Which restaurant this chat belongs to"
     )
+    conversation_token: Optional[str] = Field(
+        default=None,
+        description="Opaque token from a previous X-Conversation-Token response "
+                     "header, to resume that conversation's persisted history. "
+                     "Omit to start a new conversation. Unknown or cross-restaurant "
+                     "tokens are treated exactly like no token — a new conversation "
+                     "starts silently, never an error.",
+    )
 
 
 class ChatResponse(BaseModel):
@@ -270,3 +278,29 @@ class AdminUserCreateOut(AdminUserOut):
 class AdminUserUpdate(BaseModel):
     is_active: Optional[bool] = None
     label: Optional[str] = Field(default=None, min_length=1, max_length=200)
+
+
+# --- Conversations (Stage 3 Step 5: persistence) ---
+# Read-only admin views. public_token is deliberately never included —
+# it's the anonymous-customer-facing handle, not something an admin
+# (who already has the integer id) needs or should be able to read back.
+
+class ConversationOut(BaseModel):
+    id: int
+    restaurant_id: int
+    channel: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MessageOut(BaseModel):
+    id: int
+    conversation_id: int
+    role: str
+    content: str
+    triggered_tool_call: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

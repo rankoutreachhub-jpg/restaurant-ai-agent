@@ -112,6 +112,40 @@ def test_admin_user_key_creation_and_rotation_never_logs_plaintext_key(
     assert rotated_key.split(".")[1] not in content
 
 
+def test_chat_message_content_and_conversation_token_are_never_logged(client, monkeypatch):
+    """
+    Stage 3 Step 5: persisted message content can genuinely contain
+    customer PII (same trust boundary as the existing Booking table),
+    and the conversation_token is the resumption handle for that
+    content — neither may ever reach app.log, extending this project's
+    existing no-PII/no-secrets logging policy to conversation
+    persistence.
+    """
+    from app import llm
+
+    def fake_generate_content(model, contents, config):
+        from types import SimpleNamespace
+        return SimpleNamespace(
+            text="Reply text that must not be logged either",
+            function_calls=[],
+            candidates=[SimpleNamespace(content=SimpleNamespace(role="model", parts=[]))],
+        )
+
+    monkeypatch.setattr(llm.client.models, "generate_content", fake_generate_content)
+
+    secret_marker = "my-phone-is-07000-logging-marker-99881"
+    response = client.post(
+        "/chat", json={"message": secret_marker, "history": [], "restaurant_id": 1}
+    )
+    assert response.status_code == 200
+    token = response.headers["X-Conversation-Token"]
+
+    content = _read_log()
+    assert secret_marker not in content
+    assert "Reply text that must not be logged either" not in content
+    assert token not in content
+
+
 def test_unhandled_chat_error_is_logged_to_file(client, monkeypatch):
     from app import llm
 
