@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurant AI Agent — Admin Dashboard</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2efe9;
+    margin: 0;
+    color: #222;
+  }
+  a { color: #7a2e2e; }
+
+  /* --- Login view --- */
+  #login-view {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+  #login-box {
+    background: #fff;
+    padding: 32px;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    width: 100%;
+    max-width: 360px;
+  }
+  #login-box h1 { font-size: 18px; margin: 0 0 4px; }
+  #login-box p { font-size: 13px; color: #666; margin: 0 0 20px; }
+  #login-box input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  #login-box button {
+    width: 100%;
+    background: #7a2e2e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #login-error {
+    color: #b00020;
+    font-size: 13px;
+    margin-top: 10px;
+    min-height: 16px;
+  }
+
+  /* --- App view --- */
+  #app-view { display: none; }
+  header {
+    background: #7a2e2e;
+    color: #fff;
+    padding: 12px 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; flex: 0 0 auto; }
+  .badge {
+    background: rgba(255,255,255,0.2);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+  }
+  header select {
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+  }
+  header .spacer { flex: 1; }
+  header button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  nav {
+    display: flex;
+    gap: 4px;
+    padding: 10px 20px 0;
+    background: #fff;
+    border-bottom: 1px solid #eee;
+    flex-wrap: wrap;
+  }
+  nav button {
+    background: none;
+    border: none;
+    padding: 10px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    color: #555;
+  }
+  nav button.active {
+    border-bottom-color: #7a2e2e;
+    color: #7a2e2e;
+    font-weight: 600;
+  }
+
+  main {
+    padding: 20px;
+    max-width: 1000px;
+    margin: 0 auto;
+  }
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  th { background: #faf8f5; font-weight: 600; }
+  td button, .row-actions button {
+    font-size: 12px;
+    padding: 4px 8px;
+    margin-right: 4px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fff;
+    cursor: pointer;
+  }
+  td button.danger { color: #b00020; border-color: #f0c0c0; }
+
+  .card {
+    background: #fff;
+    border-radius: 8px;
+    padding: 16px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+  }
+  .card h2 { font-size: 14px; margin: 0 0 12px; }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .form-row input, .form-row select, .form-row textarea {
+    padding: 7px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 140px;
+  }
+  .form-row textarea { min-width: 100%; }
+  .form-row button, .card > button {
+    background: #7a2e2e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .muted { color: #888; font-size: 12px; }
+  .error-banner {
+    background: #fdeaea;
+    color: #b00020;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .key-reveal {
+    background: #fff8e1;
+    border: 1px solid #f0d97a;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+  .key-reveal code {
+    display: block;
+    word-break: break-all;
+    background: #fff;
+    padding: 8px;
+    border-radius: 4px;
+    margin: 6px 0;
+    font-size: 12px;
+  }
+  .thread { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+  .msg { max-width: 75%; padding: 8px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; }
+  .msg.user { background: #7a2e2e; color: #fff; margin-left: auto; }
+  .msg.assistant { background: #f0f0f0; }
+  .msg .meta { display: block; font-size: 10px; opacity: 0.7; margin-top: 4px; }
+</style>
+</head>
+<body>
+
+<!--
+  Auth model: reuses the existing X-Admin-API-Key header exactly as
+  every other admin client (curl/PowerShell) always has — no new
+  authentication mechanism. The key is kept only in this browser's
+  localStorage and sent only as a request header, never as a query
+  string, never logged to the console, and never rendered into the
+  page anywhere (the ONE exception, by design: a newly-issued SCOPED
+  ADMIN key shown once right after creation/rotation in the Platform
+  Admin tab — that is the server's own one-time-reveal behaviour,
+  the same key nobody but the operator has seen yet, not this
+  session's own authenticating key).
+-->
+
+<div id="login-view">
+  <div id="login-box">
+    <h1>Restaurant AI Agent</h1>
+    <p>Enter your admin API key to continue.</p>
+    <input type="password" id="login-key" placeholder="X-Admin-API-Key" autocomplete="off">
+    <button id="login-btn">Sign in</button>
+    <div id="login-error"></div>
+  </div>
+</div>
+
+<div id="app-view">
+  <header>
+    <h1>Restaurant AI Agent — Admin</h1>
+    <span class="badge" id="role-badge"></span>
+    <select id="restaurant-select"></select>
+    <div class="spacer"></div>
+    <button id="logout-btn">Sign out</button>
+  </header>
+
+  <nav id="tabs">
+    <button data-tab="restaurant" class="active">Restaurant</button>
+    <button data-tab="menu">Menu</button>
+    <button data-tab="hours">Opening Hours</button>
+    <button data-tab="faqs">FAQs</button>
+    <button data-tab="bookings">Bookings</button>
+    <button data-tab="conversations">Conversations</button>
+    <button data-tab="platform" id="platform-tab-btn" hidden>Platform Admin</button>
+  </nav>
+
+  <main>
+    <div id="global-error"></div>
+
+    <div class="panel active" id="panel-restaurant"></div>
+    <div class="panel" id="panel-menu"></div>
+    <div class="panel" id="panel-hours"></div>
+    <div class="panel" id="panel-faqs"></div>
+    <div class="panel" id="panel-bookings"></div>
+    <div class="panel" id="panel-conversations"></div>
+    <div class="panel" id="panel-platform"></div>
+  </main>
+</div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------
+// Auth / API helper
+// ---------------------------------------------------------------
+
+// Same convention as frontend/index.html: this is a plain static file
+// (no build step, often opened directly as file://), so relative fetch
+// paths won't reach the backend — the origin has to be spelled out.
+const API_BASE = "http://127.0.0.1:8000";
+
+let adminKey = null;
+let identity = null;       // { is_superadmin, restaurant_ids }
+let restaurants = [];      // superadmin: full list from /admin/platform/restaurants
+let currentRestaurantId = null;
+
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+function escapeHtml(value) {
+  const div = document.createElement("div");
+  div.textContent = value === null || value === undefined ? "" : String(value);
+  return div.innerHTML;
+}
+
+async function api(path, options = {}) {
+  const headers = Object.assign({}, options.headers || {});
+  headers["X-Admin-API-Key"] = adminKey;
+  if (options.body !== undefined && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
+  const response = await fetch(API_BASE + path, Object.assign({}, options, { headers }));
+  if (response.status === 401) {
+    signOut("Your admin key was rejected. Please sign in again.");
+    throw new Error("unauthorized");
+  }
+  return response;
+}
+
+function showGlobalError(message) {
+  const el = document.getElementById("global-error");
+  el.innerHTML = message ? `<div class="error-banner">${escapeHtml(message)}</div>` : "";
+}
+
+// A generic response-body error message from the API is safe to show
+// (the backend never puts secrets in error bodies — see app/auth.py) —
+// this never echoes anything from the request itself, so the admin key
+// can never end up here even indirectly.
+async function describeError(response, fallback) {
+  try {
+    const body = await response.json();
+    if (body && typeof body.detail === "string") return body.detail;
+  } catch (e) { /* not JSON — fall through */ }
+  return fallback;
+}
+
+// ---------------------------------------------------------------
+// Login / session
+// ---------------------------------------------------------------
+
+function signOut(message) {
+  adminKey = null;
+  identity = null;
+  restaurants = [];
+  currentRestaurantId = null;
+  localStorage.removeItem("adminApiKey");
+  document.getElementById("app-view").style.display = "none";
+  document.getElementById("login-view").style.display = "flex";
+  document.getElementById("login-key").value = "";
+  document.getElementById("login-error").textContent = message || "";
+}
+
+async function trySignIn(key) {
+  adminKey = key;
+  const response = await fetch(API_BASE + "/admin/me", { headers: { "X-Admin-API-Key": key } });
+  if (!response.ok) {
+    adminKey = null;
+    return false;
+  }
+  identity = await response.json();
+  localStorage.setItem("adminApiKey", key);
+  await enterApp();
+  return true;
+}
+
+async function enterApp() {
+  document.getElementById("login-view").style.display = "none";
+  document.getElementById("app-view").style.display = "block";
+  document.getElementById("role-badge").textContent = identity.is_superadmin ? "Superadmin" : "Restaurant Admin";
+  document.getElementById("platform-tab-btn").hidden = !identity.is_superadmin;
+
+  if (identity.is_superadmin) {
+    const response = await api("/admin/platform/restaurants");
+    restaurants = response.ok ? await response.json() : [];
+  } else {
+    restaurants = [];
+    for (const id of identity.restaurant_ids || []) {
+      const response = await api(`/admin/restaurant/${id}`);
+      if (response.ok) restaurants.push(await response.json());
+    }
+  }
+
+  const select = document.getElementById("restaurant-select");
+  select.innerHTML = restaurants.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (#${r.id})</option>`).join("");
+  currentRestaurantId = restaurants.length ? restaurants[0].id : null;
+  select.value = currentRestaurantId;
+  select.onchange = () => { currentRestaurantId = Number(select.value); loadActiveTab(); };
+
+  setActiveTab("restaurant");
+}
+
+document.getElementById("login-btn").onclick = async () => {
+  const key = document.getElementById("login-key").value.trim();
+  if (!key) return;
+  document.getElementById("login-error").textContent = "";
+  const ok = await trySignIn(key);
+  if (!ok) {
+    document.getElementById("login-error").textContent = "Invalid or inactive admin key.";
+    document.getElementById("login-key").value = "";
+  }
+};
+document.getElementById("login-key").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") document.getElementById("login-btn").click();
+});
+document.getElementById("logout-btn").onclick = () => signOut("");
+
+// ---------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------
+
+const TAB_LOADERS = {
+  restaurant: loadRestaurantTab,
+  menu: loadMenuTab,
+  hours: loadHoursTab,
+  faqs: loadFaqsTab,
+  bookings: loadBookingsTab,
+  conversations: loadConversationsTab,
+  platform: loadPlatformTab,
+};
+
+function setActiveTab(tab) {
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+  document.getElementById(`panel-${tab}`).classList.add("active");
+  loadActiveTab();
+}
+
+function loadActiveTab() {
+  const active = document.querySelector("#tabs button.active");
+  if (!active) return;
+  showGlobalError("");
+  TAB_LOADERS[active.dataset.tab]();
+}
+
+document.querySelectorAll("#tabs button").forEach(btn => {
+  btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+});
+
+// ---------------------------------------------------------------
+// Restaurant profile
+// ---------------------------------------------------------------
+
+async function loadRestaurantTab() {
+  const panel = document.getElementById("panel-restaurant");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load restaurant.")); return; }
+  const r = await response.json();
+
+  panel.innerHTML = `
+    <div class="card">
+      <h2>Restaurant profile</h2>
+      <form id="restaurant-form">
+        <div class="form-row">
+          <input name="name" placeholder="Name" value="${escapeHtml(r.name)}" required>
+          <input name="phone" placeholder="Phone" value="${escapeHtml(r.phone)}" required>
+        </div>
+        <div class="form-row">
+          <input name="address" placeholder="Address" value="${escapeHtml(r.address)}" required>
+          <input name="email" placeholder="Email" value="${escapeHtml(r.email)}" required>
+        </div>
+        <div class="form-row">
+          <input name="map_link" placeholder="Map link" value="${escapeHtml(r.map_link || "")}">
+          <input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" value="${r.seating_capacity}" required>
+        </div>
+        <div class="form-row">
+          <textarea name="parking_notes" placeholder="Parking notes" rows="2">${escapeHtml(r.parking_notes || "")}</textarea>
+        </div>
+        <button type="submit">Save changes</button>
+      </form>
+    </div>`;
+
+  document.getElementById("restaurant-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.seating_capacity = Number(data.seating_capacity);
+    const response = await api(`/admin/restaurant/${currentRestaurantId}`, { method: "PATCH", body: JSON.stringify(data) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not save.")); return; }
+    loadRestaurantTab();
+  };
+}
+
+// ---------------------------------------------------------------
+// Menu
+// ---------------------------------------------------------------
+
+async function loadMenuTab() {
+  const panel = document.getElementById("panel-menu");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/menu`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load menu.")); return; }
+  const items = await response.json();
+
+  const rows = items.map(item => `
+    <tr>
+      <td>${escapeHtml(item.category)}</td>
+      <td>${escapeHtml(item.name)}</td>
+      <td>${escapeHtml(item.description || "")}</td>
+      <td>£${Number(item.price).toFixed(2)}</td>
+      <td>${escapeHtml(item.dietary_tags || "")}</td>
+      <td><button class="danger" onclick="deleteMenuItem(${item.id})">Delete</button></td>
+    </tr>`).join("");
+
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Category</th><th>Name</th><th>Description</th><th>Price</th><th>Tags</th><th></th></tr></thead>
+      <tbody>${rows || "<tr><td colspan='6' class='muted'>No menu items yet.</td></tr>"}</tbody>
+    </table>
+    <div class="card">
+      <h2>Add menu item</h2>
+      <form id="menu-form">
+        <div class="form-row">
+          <input name="category" placeholder="Category" required>
+          <input name="name" placeholder="Name" required>
+        </div>
+        <div class="form-row">
+          <input name="price" type="number" step="0.01" min="0" placeholder="Price" required>
+          <input name="dietary_tags" placeholder="Dietary tags (optional)">
+        </div>
+        <div class="form-row"><textarea name="description" placeholder="Description (optional)" rows="2"></textarea></div>
+        <button type="submit">Add item</button>
+      </form>
+    </div>`;
+
+  document.getElementById("menu-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.price = Number(data.price);
+    if (!data.description) delete data.description;
+    if (!data.dietary_tags) delete data.dietary_tags;
+    const response = await api(`/admin/restaurant/${currentRestaurantId}/menu`, { method: "POST", body: JSON.stringify(data) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not add item.")); return; }
+    loadMenuTab();
+  };
+}
+
+async function deleteMenuItem(itemId) {
+  if (!confirm("Delete this menu item?")) return;
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/menu/${itemId}`, { method: "DELETE" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not delete item.")); return; }
+  loadMenuTab();
+}
+
+// ---------------------------------------------------------------
+// Opening hours
+// ---------------------------------------------------------------
+
+async function loadHoursTab() {
+  const panel = document.getElementById("panel-hours");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/opening-hours`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load opening hours.")); return; }
+  const hours = await response.json();
+  const byDay = Object.fromEntries(hours.map(h => [h.day_of_week, h]));
+
+  const rows = DAY_NAMES.map(day => {
+    const h = byDay[day];
+    if (!h) {
+      return `<tr><td>${day}</td><td colspan="3" class="muted">Not set up yet</td>
+        <td><button onclick="createOpeningDay('${day}')">Create</button></td></tr>`;
+    }
+    return `<tr>
+      <td>${day}</td>
+      <td><input type="checkbox" data-day="${day}" class="closed-toggle" ${h.is_closed ? "checked" : ""}></td>
+      <td><input type="time" data-day="${day}" class="open-time" value="${h.open_time || ""}" ${h.is_closed ? "disabled" : ""}></td>
+      <td><input type="time" data-day="${day}" class="close-time" value="${h.close_time || ""}" ${h.is_closed ? "disabled" : ""}></td>
+      <td><button onclick="saveOpeningDay('${day}')">Save</button></td>
+    </tr>`;
+  }).join("");
+
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Day</th><th>Closed</th><th>Open</th><th>Close</th><th></th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted">"Create" adds a day that doesn't have hours yet (e.g. a newly onboarded restaurant); "Save" updates a day that already exists.</p>`;
+
+  // The disabled state above only reflects what was last saved. Wire the
+  // checkbox live so unchecking "Closed" immediately re-enables the time
+  // inputs for editing — otherwise a disabled input's stale/empty value
+  // would go straight into the PATCH body (OpeningHoursUpdate doesn't
+  // validate time format the way the create schema does).
+  panel.querySelectorAll(".closed-toggle").forEach(toggle => {
+    toggle.addEventListener("change", () => {
+      const day = toggle.dataset.day;
+      const openInput = panel.querySelector(`.open-time[data-day="${day}"]`);
+      const closeInput = panel.querySelector(`.close-time[data-day="${day}"]`);
+      openInput.disabled = toggle.checked;
+      closeInput.disabled = toggle.checked;
+    });
+  });
+}
+
+async function saveOpeningDay(day) {
+  const closed = document.querySelector(`.closed-toggle[data-day="${day}"]`).checked;
+  const open = document.querySelector(`.open-time[data-day="${day}"]`).value;
+  const close = document.querySelector(`.close-time[data-day="${day}"]`).value;
+  if (!closed && (!open || !close)) {
+    showGlobalError("Open and close times are required unless the day is marked closed.");
+    return;
+  }
+  const data = { is_closed: closed, open_time: closed ? null : open, close_time: closed ? null : close };
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/opening-hours/${day}`, { method: "PATCH", body: JSON.stringify(data) });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not save opening hours.")); return; }
+  loadHoursTab();
+}
+
+async function createOpeningDay(day) {
+  const data = { days: [{ day_of_week: day, open_time: "12:00", close_time: "22:00", is_closed: false }] };
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/opening-hours`, { method: "POST", body: JSON.stringify(data) });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not create opening hours for that day.")); return; }
+  loadHoursTab();
+}
+
+// ---------------------------------------------------------------
+// FAQs
+// ---------------------------------------------------------------
+
+async function loadFaqsTab() {
+  const panel = document.getElementById("panel-faqs");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/faqs`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load FAQs.")); return; }
+  const faqs = await response.json();
+
+  const rows = faqs.map(f => `
+    <tr>
+      <td>${escapeHtml(f.question)}</td>
+      <td>${escapeHtml(f.answer)}</td>
+      <td><button class="danger" onclick="deleteFaq(${f.id})">Delete</button></td>
+    </tr>`).join("");
+
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>Question</th><th>Answer</th><th></th></tr></thead>
+      <tbody>${rows || "<tr><td colspan='3' class='muted'>No FAQs yet.</td></tr>"}</tbody>
+    </table>
+    <div class="card">
+      <h2>Add FAQ</h2>
+      <form id="faq-form">
+        <div class="form-row"><input name="question" placeholder="Question" required></div>
+        <div class="form-row"><textarea name="answer" placeholder="Answer" rows="2" required></textarea></div>
+        <button type="submit">Add FAQ</button>
+      </form>
+    </div>`;
+
+  document.getElementById("faq-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    const response = await api(`/admin/restaurant/${currentRestaurantId}/faqs`, { method: "POST", body: JSON.stringify(data) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not add FAQ.")); return; }
+    loadFaqsTab();
+  };
+}
+
+async function deleteFaq(faqId) {
+  if (!confirm("Delete this FAQ?")) return;
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/faqs/${faqId}`, { method: "DELETE" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not delete FAQ.")); return; }
+  loadFaqsTab();
+}
+
+// ---------------------------------------------------------------
+// Bookings
+// ---------------------------------------------------------------
+
+async function loadBookingsTab() {
+  const panel = document.getElementById("panel-bookings");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/bookings`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load bookings.")); return; }
+  const bookings = await response.json();
+
+  const rows = bookings.map(b => `
+    <tr>
+      <td>${b.id}</td>
+      <td>${escapeHtml(b.customer_name)}</td>
+      <td>${escapeHtml(b.phone)}</td>
+      <td>${b.booking_date} ${b.booking_time}</td>
+      <td>${b.party_size}</td>
+      <td>${escapeHtml(b.status)}</td>
+      <td>
+        ${b.status === "confirmed"
+          ? `<button onclick="cancelBooking(${b.id})">Cancel</button>`
+          : `<button onclick="reactivateBooking(${b.id})">Reactivate</button>`}
+        <button class="danger" onclick="deleteBooking(${b.id})">Delete</button>
+      </td>
+    </tr>`).join("");
+
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Date/time</th><th>Party</th><th>Status</th><th></th></tr></thead>
+      <tbody>${rows || "<tr><td colspan='7' class='muted'>No bookings yet.</td></tr>"}</tbody>
+    </table>
+    <div class="card">
+      <h2>Create booking</h2>
+      <form id="booking-form">
+        <div class="form-row">
+          <input name="customer_name" placeholder="Customer name" required>
+          <input name="phone" placeholder="Phone" required>
+          <input name="email" type="email" placeholder="Email" required>
+        </div>
+        <div class="form-row">
+          <input name="booking_date" type="date" required>
+          <input name="booking_time" type="time" required>
+          <input name="party_size" type="number" min="1" max="20" placeholder="Party size" required>
+        </div>
+        <div class="form-row"><textarea name="notes" placeholder="Notes (optional)" rows="2"></textarea></div>
+        <button type="submit">Create booking</button>
+      </form>
+    </div>`;
+
+  document.getElementById("booking-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.party_size = Number(data.party_size);
+    if (!data.notes) delete data.notes;
+    const response = await api(`/admin/restaurant/${currentRestaurantId}/bookings`, { method: "POST", body: JSON.stringify(data) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not create booking.")); return; }
+    loadBookingsTab();
+  };
+}
+
+async function cancelBooking(id) { await updateBookingStatus(id, "cancelled"); }
+async function reactivateBooking(id) { await updateBookingStatus(id, "confirmed"); }
+
+async function updateBookingStatus(id, status) {
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/bookings/${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not update booking.")); return; }
+  loadBookingsTab();
+}
+
+async function deleteBooking(id) {
+  if (!confirm("Delete this booking permanently?")) return;
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/bookings/${id}`, { method: "DELETE" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not delete booking.")); return; }
+  loadBookingsTab();
+}
+
+// ---------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------
+
+async function loadConversationsTab() {
+  const panel = document.getElementById("panel-conversations");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/conversations`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load conversations.")); return; }
+  const conversations = await response.json();
+
+  const rows = conversations.map(c => `
+    <tr>
+      <td>${c.id}</td>
+      <td>${escapeHtml(c.channel)}</td>
+      <td>${new Date(c.created_at).toLocaleString()}</td>
+      <td>${new Date(c.updated_at).toLocaleString()}</td>
+      <td><button onclick="viewConversation(${c.id})">View</button></td>
+    </tr>`).join("");
+
+  panel.innerHTML = `
+    <table>
+      <thead><tr><th>#</th><th>Channel</th><th>Started</th><th>Last activity</th><th></th></tr></thead>
+      <tbody>${rows || "<tr><td colspan='5' class='muted'>No conversations yet.</td></tr>"}</tbody>
+    </table>
+    <div id="conversation-thread"></div>`;
+}
+
+async function viewConversation(conversationId) {
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/conversations/${conversationId}/messages`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load messages.")); return; }
+  const messages = await response.json();
+
+  const html = messages.map(m => `
+    <div class="msg ${m.role === "user" ? "user" : "assistant"}">
+      ${escapeHtml(m.content)}
+      <span class="meta">${m.role} · ${new Date(m.created_at).toLocaleString()}${m.triggered_tool_call ? " · booking tool called" : ""}</span>
+    </div>`).join("");
+
+  document.getElementById("conversation-thread").innerHTML = `
+    <div class="thread"><h2>Conversation #${conversationId}</h2>${html || "<p class='muted'>No messages.</p>"}</div>`;
+}
+
+// ---------------------------------------------------------------
+// Platform admin (superadmin only)
+// ---------------------------------------------------------------
+
+async function loadPlatformTab() {
+  const panel = document.getElementById("panel-platform");
+  if (!identity || !identity.is_superadmin) { panel.innerHTML = ""; return; }
+
+  const [restaurantsResp, adminUsersResp] = await Promise.all([
+    api("/admin/platform/restaurants"),
+    api("/admin/platform/admin-users"),
+  ]);
+  if (!restaurantsResp.ok) { showGlobalError(await describeError(restaurantsResp, "Could not load restaurants.")); return; }
+  if (!adminUsersResp.ok) { showGlobalError(await describeError(adminUsersResp, "Could not load admin users.")); return; }
+  const allRestaurants = await restaurantsResp.json();
+  const adminUsers = await adminUsersResp.json();
+
+  const restaurantRows = allRestaurants.map(r => `
+    <tr><td>${r.id}</td><td>${escapeHtml(r.name)}</td><td>${r.seating_capacity}</td></tr>`).join("");
+
+  const adminUserRows = adminUsers.map(u => `
+    <tr>
+      <td>${u.id}</td>
+      <td>${escapeHtml(u.label)}</td>
+      <td>${u.is_active ? "Active" : "Deactivated"}</td>
+      <td>${u.restaurant_ids.join(", ")}</td>
+      <td>
+        <button onclick="toggleAdminUserActive(${u.id}, ${!u.is_active})">${u.is_active ? "Deactivate" : "Reactivate"}</button>
+        <button onclick="rotateAdminUserKey(${u.id})">Rotate key</button>
+      </td>
+      <td>
+        <select id="grant-select-${u.id}">
+          ${allRestaurants.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (#${r.id})</option>`).join("")}
+        </select>
+        <button onclick="grantAccess(${u.id})">Grant</button>
+        <button onclick="revokeAccess(${u.id})">Revoke</button>
+      </td>
+    </tr>`).join("");
+
+  panel.innerHTML = `
+    <div id="key-reveal-slot"></div>
+    <div class="card">
+      <h2>Restaurants</h2>
+      <table>
+        <thead><tr><th>#</th><th>Name</th><th>Seats</th></tr></thead>
+        <tbody>${restaurantRows}</tbody>
+      </table>
+      <h2>Onboard a new restaurant</h2>
+      <form id="onboard-form">
+        <div class="form-row">
+          <input name="name" placeholder="Name" required>
+          <input name="phone" placeholder="Phone" required>
+        </div>
+        <div class="form-row">
+          <input name="address" placeholder="Address" required>
+          <input name="email" type="email" placeholder="Email" required>
+        </div>
+        <div class="form-row"><input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" required></div>
+        <button type="submit">Onboard restaurant</button>
+      </form>
+    </div>
+    <div class="card">
+      <h2>Admin users (restaurant-scoped keys)</h2>
+      <table>
+        <thead><tr><th>#</th><th>Label</th><th>Status</th><th>Restaurants</th><th></th><th>Access</th></tr></thead>
+        <tbody>${adminUserRows || "<tr><td colspan='6' class='muted'>No admin users yet.</td></tr>"}</tbody>
+      </table>
+      <h2>Create admin user</h2>
+      <form id="create-admin-user-form">
+        <div class="form-row"><input name="label" placeholder="Label (e.g. restaurant name)" required></div>
+        <div class="form-row">
+          <select name="restaurant_ids" multiple size="4" required>
+            ${allRestaurants.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (#${r.id})</option>`).join("")}
+          </select>
+        </div>
+        <p class="muted">Ctrl/Cmd-click to select more than one restaurant.</p>
+        <button type="submit">Create admin user</button>
+      </form>
+    </div>`;
+
+  document.getElementById("onboard-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const data = Object.fromEntries(new FormData(e.target).entries());
+    data.seating_capacity = Number(data.seating_capacity);
+    const response = await api("/admin/platform/restaurants", { method: "POST", body: JSON.stringify(data) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not onboard restaurant.")); return; }
+    loadPlatformTab();
+  };
+
+  document.getElementById("create-admin-user-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const label = form.label.value;
+    const restaurant_ids = Array.from(form.restaurant_ids.selectedOptions).map(o => Number(o.value));
+    const response = await api("/admin/platform/admin-users", { method: "POST", body: JSON.stringify({ label, restaurant_ids }) });
+    if (!response.ok) { showGlobalError(await describeError(response, "Could not create admin user.")); return; }
+    const body = await response.json();
+    // loadPlatformTab() replaces panel.innerHTML (including key-reveal-slot),
+    // so the reveal must be shown after it finishes, not before — same
+    // reasoning as rotateAdminUserKey() below.
+    await loadPlatformTab();
+    showKeyReveal(body.api_key, `Admin user "${label}" created`);
+  };
+}
+
+function showKeyReveal(apiKey, heading) {
+  const slot = document.getElementById("key-reveal-slot");
+  if (!slot) return;
+  slot.innerHTML = `
+    <div class="key-reveal">
+      <strong>${escapeHtml(heading)}</strong> — copy this key now. It will not be shown again.
+      <code>${escapeHtml(apiKey)}</code>
+    </div>`;
+}
+
+async function toggleAdminUserActive(id, makeActive) {
+  const response = await api(`/admin/platform/admin-users/${id}`, { method: "PATCH", body: JSON.stringify({ is_active: makeActive }) });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not update admin user.")); return; }
+  loadPlatformTab();
+}
+
+async function rotateAdminUserKey(id) {
+  if (!confirm("Rotate this admin user's key? The old key will stop working immediately.")) return;
+  const response = await api(`/admin/platform/admin-users/${id}/rotate-key`, { method: "POST" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not rotate key.")); return; }
+  const body = await response.json();
+  await loadPlatformTab();
+  showKeyReveal(body.api_key, `Key rotated for "${body.label}"`);
+}
+
+async function grantAccess(adminUserId) {
+  const restaurantId = document.getElementById(`grant-select-${adminUserId}`).value;
+  const response = await api(`/admin/platform/admin-users/${adminUserId}/restaurants/${restaurantId}`, { method: "POST" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not grant access.")); return; }
+  loadPlatformTab();
+}
+
+async function revokeAccess(adminUserId) {
+  const restaurantId = document.getElementById(`grant-select-${adminUserId}`).value;
+  const response = await api(`/admin/platform/admin-users/${adminUserId}/restaurants/${restaurantId}`, { method: "DELETE" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not revoke access.")); return; }
+  loadPlatformTab();
+}
+
+// ---------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------
+
+(async function boot() {
+  const savedKey = localStorage.getItem("adminApiKey");
+  if (savedKey) {
+    const ok = await trySignIn(savedKey);
+    if (!ok) signOut("");
+  }
+})();
+</script>
+</body>
+</html>
