@@ -6,7 +6,7 @@ interactive API docs at /docs.
 
 from datetime import date as date_type, datetime, time as time_type
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import List, Literal, Optional
 
 
@@ -81,6 +81,83 @@ class OpeningHoursUpdate(BaseModel):
     open_time: Optional[str] = None
     close_time: Optional[str] = None
     is_closed: Optional[bool] = None
+
+
+# --- FAQs (Stage 3 Step 4: restaurant onboarding completeness) ---
+
+FAQ_QUESTION_MAX_LENGTH = 500
+FAQ_ANSWER_MAX_LENGTH = 2000
+
+
+class FAQCreate(BaseModel):
+    question: str = Field(..., min_length=1, max_length=FAQ_QUESTION_MAX_LENGTH)
+    answer: str = Field(..., min_length=1, max_length=FAQ_ANSWER_MAX_LENGTH)
+
+
+class FAQUpdate(BaseModel):
+    question: Optional[str] = Field(default=None, min_length=1, max_length=FAQ_QUESTION_MAX_LENGTH)
+    answer: Optional[str] = Field(default=None, min_length=1, max_length=FAQ_ANSWER_MAX_LENGTH)
+
+
+# --- Opening-hours creation (Stage 3 Step 4) ---
+# A newly onboarded restaurant has no OpeningHours rows at all (only
+# PATCH-to-update existed before this stage). This lets one or all
+# seven days be created through the same endpoint, with real HH:MM
+# format validation — a gap that existed even in OpeningHoursUpdate
+# above, which this deliberately does not retroactively change.
+
+DayOfWeek = Literal[
+    "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+]
+
+
+class OpeningHoursCreateItem(BaseModel):
+    day_of_week: DayOfWeek
+    open_time: Optional[str] = Field(default=None, description="24-hour \"HH:MM\", e.g. \"12:00\"")
+    close_time: Optional[str] = Field(default=None, description="24-hour \"HH:MM\", e.g. \"22:00\"")
+    is_closed: bool = False
+
+    @field_validator("open_time", "close_time")
+    @classmethod
+    def _validate_time_format(cls, v):
+        if v is None:
+            return v
+        # Same "HH:MM" shape app/booking.py's _parse_hhmm() expects when
+        # it later reads these values back out for availability checks —
+        # validated here so bad input is rejected at creation (422)
+        # instead of surfacing as an unhandled error during a booking.
+        try:
+            datetime.strptime(v, "%H:%M")
+        except ValueError:
+            raise ValueError('must be in 24-hour "HH:MM" format, e.g. "12:00"')
+        return v
+
+    @model_validator(mode="after")
+    def _require_times_unless_closed(self):
+        if not self.is_closed and (self.open_time is None or self.close_time is None):
+            raise ValueError("open_time and close_time are required unless is_closed is true")
+        return self
+
+
+def _validate_no_duplicate_days_in_request(items: List[OpeningHoursCreateItem]) -> List[OpeningHoursCreateItem]:
+    seen = set()
+    for item in items:
+        if item.day_of_week in seen:
+            raise ValueError(f"Duplicate day_of_week in request: {item.day_of_week}")
+        seen.add(item.day_of_week)
+    return items
+
+
+class OpeningHoursCreate(BaseModel):
+    # A plain list would also work as the request body, but wrapping it
+    # lets us validate cross-item constraints (no day repeated within
+    # the same request) with a single model-level validator.
+    days: List[OpeningHoursCreateItem] = Field(..., min_length=1, max_length=7)
+
+    @field_validator("days")
+    @classmethod
+    def _check_no_duplicates(cls, v):
+        return _validate_no_duplicate_days_in_request(v)
 
 
 # --- Bookings ---

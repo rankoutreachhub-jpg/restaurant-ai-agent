@@ -253,12 +253,56 @@ Notes:
   running a single restaurant.
 - A restaurant-scoped key is never logged or returned in any response
   except its own creation/rotation call.
-- There's currently no endpoint to *create* a new restaurant's opening
-  hours (only `PATCH .../opening-hours/{day}` to update an existing
-  day) — after onboarding a restaurant, its opening-hours rows need a
-  direct database insert (the same way `app/seed_data.py` creates the
-  first restaurant's). A proper onboarding-completeness endpoint is a
-  natural follow-up, not part of this authorization stage.
+- Once a restaurant is onboarded, its menu, FAQs, and opening hours can
+  all be populated the same way — see "Restaurant onboarding
+  completeness" below. No direct database access is needed for any of
+  it.
+
+---
+
+### Restaurant onboarding completeness (Stage 3 Step 4)
+
+A newly onboarded restaurant (via `/admin/platform/restaurants` above)
+starts with no menu, no FAQs, and no opening hours. All three can now
+be added entirely through the API — no direct database insert needed
+for any of it (previously true for FAQs and opening hours specifically).
+
+**FAQs** — full CRUD, same shape and auth as menu items:
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/2/faqs -Method Post `
+  -Headers @{ "X-Admin-API-Key" = "your-key" } -ContentType "application/json" `
+  -Body '{"question": "Do you take walk-ins?", "answer": "Yes, subject to availability."}'
+```
+| Method & path | Purpose |
+|---|---|
+| `GET /admin/restaurant/{id}/faqs` | List all FAQs |
+| `POST /admin/restaurant/{id}/faqs` | Create one FAQ (`201`) |
+| `PATCH /admin/restaurant/{id}/faqs/{faq_id}` | Update question/answer |
+| `DELETE /admin/restaurant/{id}/faqs/{faq_id}` | Delete |
+
+**Opening hours** — a new `POST` creates the initial rows (the existing
+`PATCH .../opening-hours/{day}` only ever updates a day that already
+exists). Accepts 1 to 7 days in one call, so you can set up the whole
+week at once or add days individually:
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/admin/restaurant/2/opening-hours -Method Post `
+  -Headers @{ "X-Admin-API-Key" = "your-key" } -ContentType "application/json" `
+  -Body '{"days": [
+    {"day_of_week": "Monday", "open_time": "12:00", "close_time": "22:00", "is_closed": false},
+    {"day_of_week": "Sunday", "is_closed": true}
+  ]}'
+```
+Notes:
+- `open_time`/`close_time` must be 24-hour `"HH:MM"` and are required
+  unless `is_closed` is `true` — validated at creation (`422` on bad
+  input) rather than only surfacing later as a booking-availability
+  error.
+- If **any** requested day already has a row for that restaurant, the
+  **whole request** is rejected with `409` (no partial creation) — the
+  day-of-week + restaurant combination is unique at the database level,
+  not just checked in the handler, so this can't be bypassed by a race
+  between two concurrent requests either. Use `PATCH` to change a day
+  that already exists.
 
 ---
 
@@ -589,9 +633,12 @@ that information to hand — I'll flag it to the team" rather than guessing.
 
 ## 8. Known limitations of Stage 1 (by design)
 
-- Only one restaurant exists (ID 1) — multi-tenant support is designed
-  into the database structure (every table has `restaurant_id`) but not
-  yet exposed via an admin interface.
+- Multiple restaurants are fully supported (see "Multi-tenant admin
+  access" and "Restaurant onboarding completeness" above) — onboarding,
+  menu, FAQs, and opening hours are all API-driven, with no direct
+  database access required. What's still missing is a browser-based
+  admin *interface*; every admin/platform-admin operation today is an
+  authenticated HTTP call (curl/PowerShell/Postman), not a UI.
 - Table bookings exist and are admin-managed (see "Table bookings"
   above) but aren't yet reachable through `/chat` — AI-assisted booking
   is a later stage. No calendar sync, payments, or WhatsApp/SMS either.

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -242,6 +243,86 @@ def get_opening_hours(
 
 
 # =========================================================
+# CREATE OPENING HOURS
+# =========================================================
+# Stage 3 Step 4: a newly onboarded restaurant starts with zero
+# OpeningHours rows, and the UPDATE endpoint below only ever modifies an
+# existing day — this is the only way to create the initial 7 (or any
+# subset of them; the request accepts 1-7 days so they can also be
+# added one at a time). Rejects with 409 if any requested day already
+# exists for this restaurant, rather than silently skipping or
+# overwriting it — updating an existing day is what PATCH is for.
+
+@router.post("/restaurant/{restaurant_id}/opening-hours", status_code=201)
+def create_opening_hours(
+    restaurant_id: int,
+    data: schemas.OpeningHoursCreate,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
+    requested_days = [item.day_of_week for item in data.days]
+    existing_days = {
+        row.day_of_week
+        for row in db.query(models.OpeningHours.day_of_week)
+        .filter(
+            models.OpeningHours.restaurant_id == restaurant_id,
+            models.OpeningHours.day_of_week.in_(requested_days),
+        )
+        .all()
+    }
+    if existing_days:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Opening hours already exist for: {', '.join(sorted(existing_days))}",
+        )
+
+    new_rows = [
+        models.OpeningHours(
+            restaurant_id=restaurant_id,
+            day_of_week=item.day_of_week,
+            open_time=item.open_time,
+            close_time=item.close_time,
+            is_closed=item.is_closed,
+        )
+        for item in data.days
+    ]
+    db.add_all(new_rows)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Backstop for a concurrent request creating the same day(s)
+        # between the check above and this commit — the unique
+        # constraint on (restaurant_id, day_of_week) is what actually
+        # prevents the duplicate; this just turns it into the same 409
+        # instead of a raw 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Opening hours for one or more requested days already exist.",
+        )
+
+    for row in new_rows:
+        db.refresh(row)
+
+    return {
+        "message": "Opening hours created successfully",
+        "opening_hours": [
+            {
+                "id": row.id,
+                "restaurant_id": row.restaurant_id,
+                "day_of_week": row.day_of_week,
+                "open_time": row.open_time,
+                "close_time": row.close_time,
+                "is_closed": row.is_closed,
+            }
+            for row in new_rows
+        ],
+    }
+
+
+# =========================================================
 # UPDATE OPENING HOURS
 # =========================================================
 
@@ -284,4 +365,119 @@ def update_opening_hours(
             "close_time": opening_hours.close_time,
             "is_closed": opening_hours.is_closed,
         },
+    }
+
+
+def _get_faq_or_404(db: Session, restaurant_id: int, faq_id: int) -> models.FAQ:
+    faq = (
+        db.query(models.FAQ)
+        .filter(models.FAQ.id == faq_id, models.FAQ.restaurant_id == restaurant_id)
+        .first()
+    )
+    if not faq:
+        raise HTTPException(status_code=404, detail="FAQ not found")
+    return faq
+
+
+# =========================================================
+# GET FAQS
+# =========================================================
+
+@router.get("/restaurant/{restaurant_id}/faqs")
+def get_faqs(
+    restaurant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
+    faqs = db.query(models.FAQ).filter(models.FAQ.restaurant_id == restaurant_id).all()
+
+    return faqs
+
+
+# =========================================================
+# CREATE FAQ
+# =========================================================
+
+@router.post("/restaurant/{restaurant_id}/faqs", status_code=201)
+def create_faq(
+    restaurant_id: int,
+    data: schemas.FAQCreate,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
+    faq = models.FAQ(restaurant_id=restaurant_id, question=data.question, answer=data.answer)
+
+    db.add(faq)
+    db.commit()
+    db.refresh(faq)
+
+    return {
+        "message": "FAQ created successfully",
+        "faq": {
+            "id": faq.id,
+            "restaurant_id": faq.restaurant_id,
+            "question": faq.question,
+            "answer": faq.answer,
+        },
+    }
+
+
+# =========================================================
+# UPDATE FAQ
+# =========================================================
+
+@router.patch("/restaurant/{restaurant_id}/faqs/{faq_id}")
+def update_faq(
+    restaurant_id: int,
+    faq_id: int,
+    data: schemas.FAQUpdate,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+    faq = _get_faq_or_404(db, restaurant_id, faq_id)
+
+    updates = data.model_dump(exclude_unset=True)
+
+    for field, value in updates.items():
+        setattr(faq, field, value)
+
+    db.commit()
+    db.refresh(faq)
+
+    return {
+        "message": "FAQ updated successfully",
+        "faq": {
+            "id": faq.id,
+            "restaurant_id": faq.restaurant_id,
+            "question": faq.question,
+            "answer": faq.answer,
+        },
+    }
+
+
+# =========================================================
+# DELETE FAQ
+# =========================================================
+
+@router.delete("/restaurant/{restaurant_id}/faqs/{faq_id}")
+def delete_faq(
+    restaurant_id: int,
+    faq_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+    faq = _get_faq_or_404(db, restaurant_id, faq_id)
+
+    db.delete(faq)
+    db.commit()
+
+    return {
+        "message": "FAQ deleted successfully",
+        "faq_id": faq_id,
     }
