@@ -35,7 +35,6 @@ command.upgrade(Config(str(_alembic_ini)), "head")
 import pytest
 from fastapi.testclient import TestClient
 
-from app import models
 from app.database import SessionLocal
 from app.main import app
 from app.rate_limit import admin_rate_limiter, chat_rate_limiter
@@ -76,11 +75,9 @@ def second_restaurant(client, admin_headers):
     A second, fully independent restaurant (id != 1) for cross-tenant
     authorization tests (Stage 3 Step 3). Created through the real
     /admin/platform/restaurants endpoint with the superadmin key, then
-    given opening hours via a direct DB insert — there is deliberately
-    no admin endpoint to *create* opening-hours rows (only to update
-    existing ones; see routers/admin.py), so this mirrors
-    app/seed_data.py's own direct-insert approach for that piece.
-    Returns the new restaurant's id.
+    given opening hours through the real POST .../opening-hours endpoint
+    (Stage 3 Step 4) — no direct DB insert needed any more. Returns the
+    new restaurant's id.
     """
     response = client.post(
         "/admin/platform/restaurants",
@@ -96,22 +93,20 @@ def second_restaurant(client, admin_headers):
     assert response.status_code == 201
     restaurant_id = response.json()["restaurant"]["id"]
 
-    session = SessionLocal()
-    try:
-        for day in [
-            "Monday", "Tuesday", "Wednesday", "Thursday",
-            "Friday", "Saturday", "Sunday",
-        ]:
-            session.add(models.OpeningHours(
-                restaurant_id=restaurant_id,
-                day_of_week=day,
-                open_time="12:00",
-                close_time="22:00",
-                is_closed=False,
-            ))
-        session.commit()
-    finally:
-        session.close()
+    hours_response = client.post(
+        f"/admin/restaurant/{restaurant_id}/opening-hours",
+        json={
+            "days": [
+                {"day_of_week": day, "open_time": "12:00", "close_time": "22:00", "is_closed": False}
+                for day in [
+                    "Monday", "Tuesday", "Wednesday", "Thursday",
+                    "Friday", "Saturday", "Sunday",
+                ]
+            ]
+        },
+        headers=admin_headers,
+    )
+    assert hours_response.status_code == 201
 
     return restaurant_id
 

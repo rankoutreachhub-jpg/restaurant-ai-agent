@@ -40,6 +40,11 @@ class Restaurant(Base):
 
 class OpeningHours(Base):
     __tablename__ = "opening_hours"
+    # One row per (restaurant, day) — enforced at the DB level (Stage 3
+    # Step 4) as a backstop against a check-then-insert race in the
+    # opening-hours creation endpoint (see routers/admin.py), not just an
+    # application-level check.
+    __table_args__ = (UniqueConstraint("restaurant_id", "day_of_week", name="uq_opening_hours_restaurant_day"),)
 
     id = Column(Integer, primary_key=True, index=True)
     restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)

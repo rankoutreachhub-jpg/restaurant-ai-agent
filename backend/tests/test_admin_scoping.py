@@ -14,6 +14,10 @@ def _menu_item_payload(name="Lemonade"):
     return {"category": "Drinks", "name": name, "price": 2.50}
 
 
+def _faq_payload(question="Do you have parking?"):
+    return {"question": question, "answer": "Yes, free parking on-site."}
+
+
 def _booking_payload():
     from datetime import date, timedelta
 
@@ -61,6 +65,21 @@ def test_scoped_admin_can_manage_its_own_restaurant(client, second_restaurant, s
         headers=headers,
     ).status_code == 200
 
+    assert client.get(f"/admin/restaurant/{second_restaurant}/faqs", headers=headers).status_code == 200
+    created_faq = client.post(
+        f"/admin/restaurant/{second_restaurant}/faqs", json=_faq_payload(), headers=headers
+    )
+    assert created_faq.status_code == 201
+    faq_id = created_faq.json()["faq"]["id"]
+    assert client.patch(
+        f"/admin/restaurant/{second_restaurant}/faqs/{faq_id}",
+        json={"answer": "Updated"},
+        headers=headers,
+    ).status_code == 200
+    assert client.delete(
+        f"/admin/restaurant/{second_restaurant}/faqs/{faq_id}", headers=headers
+    ).status_code == 200
+
     created_booking = client.post(
         f"/admin/restaurant/{second_restaurant}/bookings", json=_booking_payload(), headers=headers
     )
@@ -92,6 +111,7 @@ def _cross_tenant_get_paths(restaurant_id):
         f"/admin/restaurant/{restaurant_id}/menu",
         f"/admin/restaurant/{restaurant_id}/opening-hours",
         f"/admin/restaurant/{restaurant_id}/bookings",
+        f"/admin/restaurant/{restaurant_id}/faqs",
     ]
 
 
@@ -100,6 +120,7 @@ def _cross_tenant_get_paths(restaurant_id):
     "/menu",
     "/opening-hours",
     "/bookings",
+    "/faqs",
 ])
 def test_scoped_admin_for_restaurant_b_gets_404_on_restaurant_a_gets(
     client, second_restaurant, scoped_admin_key, path_suffix
@@ -140,6 +161,52 @@ def test_scoped_admin_for_restaurant_a_gets_404_on_restaurant_b_restaurant_patch
     _, headers = scoped_admin_key([1])
     response = client.patch(
         f"/admin/restaurant/{second_restaurant}", json={"phone": "0000000000"}, headers=headers
+    )
+    assert response.status_code == 404
+
+
+def test_scoped_admin_for_restaurant_a_gets_404_on_restaurant_b_faq_create(
+    client, second_restaurant, scoped_admin_key
+):
+    _, headers = scoped_admin_key([1])
+    response = client.post(
+        f"/admin/restaurant/{second_restaurant}/faqs", json=_faq_payload(), headers=headers
+    )
+    assert response.status_code == 404
+
+
+def test_scoped_admin_cannot_read_update_or_delete_other_restaurant_faq(
+    client, second_restaurant, scoped_admin_key, admin_headers
+):
+    created = client.post(
+        f"/admin/restaurant/{second_restaurant}/faqs", json=_faq_payload(), headers=admin_headers
+    )
+    assert created.status_code == 201
+    faq_id = created.json()["faq"]["id"]
+
+    _, headers = scoped_admin_key([1])
+    assert client.patch(
+        f"/admin/restaurant/{second_restaurant}/faqs/{faq_id}", json={"answer": "hijacked"}, headers=headers
+    ).status_code == 404
+    assert client.delete(
+        f"/admin/restaurant/{second_restaurant}/faqs/{faq_id}", headers=headers
+    ).status_code == 404
+
+    still_there = client.get(f"/admin/restaurant/{second_restaurant}/faqs", headers=admin_headers).json()
+    assert any(f["id"] == faq_id and f["answer"] != "hijacked" for f in still_there)
+
+
+def test_scoped_admin_for_restaurant_a_gets_404_on_restaurant_b_opening_hours_create(
+    client, second_restaurant, scoped_admin_key
+):
+    # second_restaurant already has all 7 days (via the conftest fixture),
+    # so use a day-independent assertion: the 404 must come from the
+    # restaurant-scope check, not a 409 from the day already existing.
+    _, headers = scoped_admin_key([1])
+    response = client.post(
+        f"/admin/restaurant/{second_restaurant}/opening-hours",
+        json={"days": [{"day_of_week": "Monday", "open_time": "12:00", "close_time": "22:00", "is_closed": False}]},
+        headers=headers,
     )
     assert response.status_code == 404
 
