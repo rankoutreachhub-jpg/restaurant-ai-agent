@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config
 from .database import SessionLocal
 from .logging_config import configure_logging
-from .routers import chat, admin, bookings, platform_admin
+from .routers import chat, admin, bookings, platform_admin, conversations
 from .seed_data import seed_if_empty
 
 # Console + rotating log file for errors and important events (see
@@ -57,6 +57,15 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    # X-Conversation-Token (Stage 3 Step 5) carries the opaque
+    # conversation-resumption handle back to the browser. Without this,
+    # a cross-origin frontend on an allowed origin would still receive
+    # the header over the wire but JS couldn't read it via
+    # response.headers.get(...) — allow_headers above governs which
+    # *request* headers a client may send, which is a separate thing.
+    # A single named header, never "*" — this can only ever apply to an
+    # origin ALLOWED_ORIGINS already trusted, never widen that allowlist.
+    expose_headers=["X-Conversation-Token"],
 )
 
 
@@ -64,6 +73,7 @@ app.include_router(chat.router)
 app.include_router(admin.router)
 app.include_router(bookings.router)
 app.include_router(platform_admin.router)
+app.include_router(conversations.router)
 
 
 @app.get("/health")

@@ -121,6 +121,7 @@ def _cross_tenant_get_paths(restaurant_id):
     "/opening-hours",
     "/bookings",
     "/faqs",
+    "/conversations",
 ])
 def test_scoped_admin_for_restaurant_b_gets_404_on_restaurant_a_gets(
     client, second_restaurant, scoped_admin_key, path_suffix
