@@ -207,6 +207,44 @@
   .msg.user { background: #7a2e2e; color: #fff; margin-left: auto; }
   .msg.assistant { background: #f0f0f0; }
   .msg .meta { display: block; font-size: 10px; opacity: 0.7; margin-top: 4px; }
+
+  /* --- Widget tab (Stage 4 Phase F) --- */
+  .status-pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; margin-right: 8px; }
+  .status-pill.on { background: #e3f5e6; color: #1e7a34; }
+  .status-pill.off { background: #eee; color: #777; }
+  .accent-color-row { align-items: center; }
+  .accent-color-row input[type="color"] {
+    flex: 0 0 auto;
+    width: 44px;
+    min-width: 44px;
+    height: 34px;
+    padding: 2px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .accent-color-row input[type="text"] { max-width: 120px; }
+  .embed-snippet {
+    background: #2b2b2b;
+    color: #eee;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre;
+    margin: 10px 0;
+  }
+  .copy-feedback, .save-feedback { color: #1e7a34; font-size: 12px; margin-left: 8px; }
+  .preview-status { font-size: 13px; color: #666; margin-top: 10px; }
+  .widget-preview-frame {
+    width: 380px;
+    max-width: 100%;
+    height: 640px;
+    max-height: 80vh;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    display: block;
+  }
 </style>
 </head>
 <body>
@@ -250,6 +288,7 @@
     <button data-tab="faqs">FAQs</button>
     <button data-tab="bookings">Bookings</button>
     <button data-tab="conversations">Conversations</button>
+    <button data-tab="widget">Widget</button>
     <button data-tab="platform" id="platform-tab-btn" hidden>Platform Admin</button>
   </nav>
 
@@ -262,6 +301,7 @@
     <div class="panel" id="panel-faqs"></div>
     <div class="panel" id="panel-bookings"></div>
     <div class="panel" id="panel-conversations"></div>
+    <div class="panel" id="panel-widget"></div>
     <div class="panel" id="panel-platform"></div>
   </main>
 </div>
@@ -403,6 +443,7 @@ const TAB_LOADERS = {
   faqs: loadFaqsTab,
   bookings: loadBookingsTab,
   conversations: loadConversationsTab,
+  widget: loadWidgetTab,
   platform: loadPlatformTab,
 };
 
@@ -772,6 +813,252 @@ async function viewConversation(conversationId) {
 
   document.getElementById("conversation-thread").innerHTML = `
     <div class="thread"><h2>Conversation #${conversationId}</h2>${html || "<p class='muted'>No messages.</p>"}</div>`;
+}
+
+// ---------------------------------------------------------------
+// Widget (Stage 4 Phase F)
+// ---------------------------------------------------------------
+// Every call below goes through the shared api() helper, so
+// X-Admin-API-Key / 401-handling / restaurant scoping (via
+// require_restaurant_access on every endpoint it calls) all come for
+// free — nothing here introduces a new authorization path. widget_key
+// is read from the backend response only; it is never rendered as an
+// editable form field anywhere below.
+
+async function loadWidgetTab() {
+  const panel = document.getElementById("panel-widget");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/widget-config`);
+  if (response.status === 404) {
+    panel.innerHTML = `
+      <div class="card">
+        <h2>Widget</h2>
+        <p class="muted">No widget has been set up for this restaurant yet.</p>
+        <button id="create-widget-btn">Create widget</button>
+      </div>`;
+    document.getElementById("create-widget-btn").onclick = async () => {
+      const createResponse = await api(`/admin/restaurant/${currentRestaurantId}/widget-config`, {
+        method: "POST", body: JSON.stringify({}),
+      });
+      if (!createResponse.ok) { showGlobalError(await describeError(createResponse, "Could not create widget.")); return; }
+      loadWidgetTab();
+    };
+    return;
+  }
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load widget settings.")); return; }
+  const config = await response.json();
+  renderWidgetPanel(panel, config);
+}
+
+function renderWidgetPanel(panel, config) {
+  const origins = config.allowed_origins || [];
+  const originRows = origins.map(o => `
+    <tr>
+      <td>${escapeHtml(o.origin)}</td>
+      <td>${new Date(o.created_at).toLocaleString()}</td>
+      <td><button class="danger" onclick="deleteWidgetOrigin(${o.id})">Delete</button></td>
+    </tr>`).join("");
+
+  // The literal snippet text (used for both display and the clipboard) —
+  // built only from API_BASE (a fixed constant) and the widget_key the
+  // backend just returned, never anything client-typed.
+  // The closing tag below has its slash escaped ("<" + "\/" + "script>")
+  // — the unescaped sequence, even just sitting inside a JS string or
+  // comment, is read by the HTML PARSER (which knows nothing about JS
+  // syntax) as the actual end of THIS script element, silently
+  // truncating everything after it, including the rest of this file's
+  // real code.
+  const embedSnippet =
+`<script
+  src="${API_BASE}/static/widget/widget.js"
+  data-widget-key="${config.widget_key}"
+  async
+><\/script>`;
+
+  const accentValue = /^#[0-9A-Fa-f]{6}$/.test(config.accent_color || "") ? config.accent_color : "#7a2e2e";
+
+  panel.innerHTML = `
+    <div class="card">
+      <h2>Widget status &amp; settings</h2>
+      <p>
+        <span class="status-pill ${config.is_active ? "on" : "off"}">${config.is_active ? "Active" : "Inactive"}</span>
+        <span class="status-pill ${config.booking_enabled ? "on" : "off"}">${config.booking_enabled ? "Booking enabled" : "Booking disabled"}</span>
+      </p>
+      <form id="widget-settings-form">
+        <div class="form-row">
+          <label class="muted" for="widget-welcome-message" style="flex-basis:100%;">Welcome message</label>
+          <textarea id="widget-welcome-message" name="welcome_message" placeholder="Hiya! Welcome to..." rows="2">${escapeHtml(config.welcome_message || "")}</textarea>
+        </div>
+        <div class="form-row">
+          <input name="primary_language" placeholder="Primary language (e.g. en-GB)" value="${escapeHtml(config.primary_language || "")}">
+          <input name="logo_url" type="url" placeholder="Logo URL (https://...)" value="${escapeHtml(config.logo_url || "")}">
+        </div>
+        <div class="form-row accent-color-row">
+          <label for="accent-color-picker" class="muted">Accent color</label>
+          <input type="color" id="accent-color-picker" value="${accentValue}">
+          <input type="text" name="accent_color" id="accent-color-text" placeholder="#7a2e2e" value="${escapeHtml(config.accent_color || "")}">
+        </div>
+        <div class="form-row">
+          <label><input type="checkbox" name="is_active" ${config.is_active ? "checked" : ""}> Active</label>
+          <label><input type="checkbox" name="booking_enabled" ${config.booking_enabled ? "checked" : ""}> Booking enabled</label>
+        </div>
+        <button type="submit">Save changes</button>
+        <span class="save-feedback" id="widget-save-feedback"></span>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Allowed origins</h2>
+      <p class="muted">
+        ${origins.length === 0
+          ? "No origins configured yet — the widget will refuse every cross-origin request until you add at least one."
+          : "Only these origins may embed this widget."}
+      </p>
+      <table>
+        <thead><tr><th>Origin</th><th>Added</th><th></th></tr></thead>
+        <tbody>${originRows || "<tr><td colspan='3' class='muted'>No origins yet.</td></tr>"}</tbody>
+      </table>
+      <form id="add-origin-form">
+        <div class="form-row">
+          <input name="origin" placeholder="https://www.your-restaurant.com" required>
+          <button type="submit">Add origin</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Embed code</h2>
+      <p class="muted">Paste this snippet into your restaurant's website to add the chat widget. The key in it is public — safe to paste anywhere on your own site.</p>
+      <pre class="embed-snippet">${escapeHtml(embedSnippet)}</pre>
+      <button id="copy-embed-btn" type="button">Copy</button>
+      <span class="copy-feedback" id="copy-feedback"></span>
+
+      <h2 style="margin-top: 20px;">Preview</h2>
+      <button id="show-preview-btn" type="button">Show preview</button>
+      <div class="preview-status" id="widget-preview-status" role="status"></div>
+      <div id="widget-preview-host"></div>
+    </div>`;
+
+  document.getElementById("widget-settings-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const data = {
+      welcome_message: form.welcome_message.value,
+      primary_language: form.primary_language.value,
+      logo_url: form.logo_url.value,
+      // Unlike welcome_message/logo_url, the backend's accent_color
+      // validator has no "blank string means clear this field" handling
+      // (it's a strict 6-digit hex check with no blank case) — sending
+      // "" would always 422, breaking every save where no custom color
+      // has been set yet, so an empty field is sent as null instead.
+      accent_color: form.accent_color.value || null,
+      is_active: form.is_active.checked,
+      booking_enabled: form.booking_enabled.checked,
+    };
+    const saveResponse = await api(`/admin/restaurant/${currentRestaurantId}/widget-config`, {
+      method: "POST", body: JSON.stringify(data),
+    });
+    if (!saveResponse.ok) { showGlobalError(await describeError(saveResponse, "Could not save widget settings.")); return; }
+    await loadWidgetTab();
+    const feedback = document.getElementById("widget-save-feedback");
+    if (feedback) feedback.textContent = "Saved.";
+  };
+
+  const colorPicker = document.getElementById("accent-color-picker");
+  const colorText = document.getElementById("accent-color-text");
+  colorPicker.addEventListener("input", () => { colorText.value = colorPicker.value; });
+  colorText.addEventListener("input", () => {
+    if (/^#[0-9A-Fa-f]{6}$/.test(colorText.value)) colorPicker.value = colorText.value;
+  });
+
+  document.getElementById("add-origin-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const origin = e.target.origin.value;
+    const originResponse = await api(`/admin/restaurant/${currentRestaurantId}/widget-config/origins`, {
+      method: "POST", body: JSON.stringify({ origin }),
+    });
+    if (!originResponse.ok) { showGlobalError(await describeError(originResponse, "Could not add origin.")); return; }
+    loadWidgetTab();
+  };
+
+  document.getElementById("copy-embed-btn").onclick = async () => {
+    const feedbackEl = document.getElementById("copy-feedback");
+    try {
+      await navigator.clipboard.writeText(embedSnippet);
+      feedbackEl.textContent = "Copied!";
+      setTimeout(() => { feedbackEl.textContent = ""; }, 2000);
+    } catch (e) {
+      showGlobalError("Could not copy to clipboard. Please select and copy the snippet manually.");
+    }
+  };
+
+  document.getElementById("show-preview-btn").onclick = () => showWidgetPreview(config.widget_key);
+}
+
+async function deleteWidgetOrigin(originId) {
+  if (!confirm("Delete this allowed origin?")) return;
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/widget-config/origins/${originId}`, { method: "DELETE" });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not delete origin.")); return; }
+  loadWidgetTab();
+}
+
+// Reuses the real, unmodified app/static_widget/widget.js (Stage 4 Phase
+// E) inside an iframe purely for visual containment: the widget's own
+// position:fixed launcher/panel positions relative to WHICHEVER
+// browsing context it runs in, so without an iframe it would float
+// relative to this entire admin page rather than staying inside this
+// card. The iframe is sandboxed with "allow-scripts allow-same-origin"
+// (blocks top-navigation/popups from inside it) but NOT away from
+// same-origin, so a srcdoc document inherits this admin page's own
+// origin for its outgoing fetch() calls — exactly the one, single
+// origin config.WIDGET_PREVIEW_ORIGIN already exists to carve out (see
+// app/widget_cors.py's existing, unmodified _is_origin_allowed check),
+// not a new or different mechanism, and not a per-restaurant allowed
+// origin (this preview never touches, and never needs to touch, any
+// restaurant's own allowed_origins rows). widget_key alone still
+// resolves which restaurant is served — preview changes nothing about
+// that.
+//
+// There is no backend endpoint exposing whether WIDGET_PREVIEW_ORIGIN
+// is actually configured, so "fail closed with a clear message" is
+// detected client-side: if the widget's own container element hasn't
+// appeared in the iframe's document after a few seconds, the real
+// CORS/config fetch must have failed (unset/mismatched preview origin,
+// or any other reason a real customer's request would also fail for),
+// and a plain explanation replaces the empty iframe rather than leaving
+// a silent, broken-looking blank box.
+function showWidgetPreview(widgetKey) {
+  const host = document.getElementById("widget-preview-host");
+  const status = document.getElementById("widget-preview-status");
+  host.innerHTML = "";
+  status.textContent = "Loading preview…";
+
+  const iframe = document.createElement("iframe");
+  iframe.className = "widget-preview-frame";
+  iframe.title = "Widget preview";
+  iframe.setAttribute("sandbox", "allow-scripts allow-same-origin");
+  iframe.srcdoc =
+    "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head><body>" +
+    `<script src="${API_BASE}/static/widget/widget.js" data-widget-key="${escapeHtml(widgetKey)}" async><\/script>` +
+    "</body></html>";
+  host.appendChild(iframe);
+
+  setTimeout(() => {
+    let launcherFound = false;
+    try {
+      launcherFound = !!(iframe.contentDocument && iframe.contentDocument.querySelector('div[id$="-container"]'));
+    } catch (e) {
+      launcherFound = false;
+    }
+    if (launcherFound) {
+      status.textContent = "";
+    } else {
+      host.innerHTML = "";
+      status.textContent =
+        "Preview isn't available for this deployment yet — ask your platform operator to set WIDGET_PREVIEW_ORIGIN to this dashboard's origin.";
+    }
+  }, 2500);
 }
 
 // ---------------------------------------------------------------
