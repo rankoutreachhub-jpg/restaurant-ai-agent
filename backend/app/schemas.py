@@ -398,6 +398,28 @@ class WidgetConfigOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Public widget config (Stage 4 Phase B) ---
+# Unlike WidgetConfigOut above (an authenticated admin view), this is
+# the shape returned by the PUBLIC, unauthenticated
+# GET /widget/{widget_key}/config (see app/routers/widget.py). It is
+# deliberately NOT built via model_config={"from_attributes": True}
+# passthrough of the WidgetConfig ORM row — every field here is set by
+# hand at the call site, so a future column added to WidgetConfig or
+# Restaurant can never leak through this endpoint just because the ORM
+# object gained a new attribute. restaurant_id, WidgetConfig.id,
+# is_active, and created_at are deliberately never included — none of
+# them are public-safe or useful to an unauthenticated caller.
+
+class WidgetPublicConfigOut(BaseModel):
+    widget_key: str
+    restaurant_name: str
+    welcome_message: str
+    primary_language: str
+    logo_url: Optional[str] = None
+    accent_color: Optional[str] = None
+    booking_enabled: bool
+
+
 # --- Conversations (Stage 3 Step 5: persistence) ---
 # Read-only admin views. public_token is deliberately never included —
 # it's the anonymous-customer-facing handle, not something an admin
