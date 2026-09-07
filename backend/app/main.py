@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import config
 from .database import SessionLocal
 from .logging_config import configure_logging
-from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp
+from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
 from .seed_data import seed_if_empty
 
 # Console + rotating log file for errors and important events (see
@@ -75,6 +75,7 @@ app.include_router(bookings.router)
 app.include_router(platform_admin.router)
 app.include_router(conversations.router)
 app.include_router(whatsapp.router)
+app.include_router(widget.router)
 
 
 @app.get("/health")
