@@ -4,7 +4,9 @@ FastAPI uses these to validate requests and to auto-generate the
 interactive API docs at /docs.
 """
 
+import re
 from datetime import date as date_type, datetime, time as time_type
+from urllib.parse import urlparse
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import List, Literal, Optional
@@ -316,6 +318,81 @@ class WhatsAppNumberOut(BaseModel):
     restaurant_id: int
     phone_number_id: str
     display_phone_number: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Widget config (Stage 4 Phase A: Production Customer Widget) ---
+# Restaurant-scoped admin management of the one-per-restaurant public
+# widget branding/config — see app/models.py:WidgetConfig. widget_key
+# itself is never client-suppliable; it's generated server-side (see
+# app/widget_keys.py) and only ever returned, never accepted as input.
+
+WIDGET_WELCOME_MESSAGE_MAX_LENGTH = 500
+WIDGET_LANGUAGE_MAX_LENGTH = 20
+WIDGET_LOGO_URL_MAX_LENGTH = 2000
+
+# Exactly "#" + 6 hex digits (e.g. "#7a2e2e") — no 3-digit shorthand, no
+# named colors, nothing a browser would need to further interpret.
+_HEX_COLOR_PATTERN = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+class WidgetConfigUpdate(BaseModel):
+    """
+    Used for both creating and updating a restaurant's widget config
+    (the POST endpoint upserts — see app/routers/admin.py) — every field
+    is optional so a partial update only touches what's provided
+    (exclude_unset=True at the call site), matching this project's
+    existing RestaurantUpdate/AdminUserUpdate convention.
+    """
+    welcome_message: Optional[str] = Field(default=None, max_length=WIDGET_WELCOME_MESSAGE_MAX_LENGTH)
+    primary_language: Optional[str] = Field(default=None, min_length=1, max_length=WIDGET_LANGUAGE_MAX_LENGTH)
+    logo_url: Optional[str] = Field(default=None, max_length=WIDGET_LOGO_URL_MAX_LENGTH)
+    accent_color: Optional[str] = None
+    booking_enabled: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("welcome_message", "primary_language", "logo_url")
+    @classmethod
+    def _blank_becomes_none(cls, v):
+        # An empty string means "clear this field" rather than "set it to
+        # the empty string" — treated as None so it falls back to the
+        # model's default/blank display, not a visibly-empty value.
+        if v is not None and v.strip() == "":
+            return None
+        return v
+
+    @field_validator("logo_url")
+    @classmethod
+    def _validate_logo_url(cls, v):
+        if v is None:
+            return None
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError('logo_url must be an absolute http(s) URL, e.g. "https://example.com/logo.png"')
+        return v
+
+    @field_validator("accent_color")
+    @classmethod
+    def _validate_accent_color(cls, v):
+        if v is None:
+            return None
+        if not _HEX_COLOR_PATTERN.match(v):
+            raise ValueError('accent_color must be a 6-digit hex color, e.g. "#7a2e2e"')
+        return v
+
+
+class WidgetConfigOut(BaseModel):
+    id: int
+    restaurant_id: int
+    widget_key: str
+    welcome_message: Optional[str] = None
+    primary_language: str
+    logo_url: Optional[str] = None
+    accent_color: Optional[str] = None
+    booking_enabled: bool
+    is_active: bool
     created_at: datetime
 
     model_config = {"from_attributes": True}
