@@ -11,15 +11,17 @@ a message. It:
      conversationally gathered every required booking field
   4. Persists the exchange and returns the reply
 
-The tool handler below is the ONLY thing standing between "the model
-decided to call create_booking" and an actual database write. It always
-routes through app/booking.py's create_booking() — the same function
-admin booking management uses — so there is exactly one place that
-ever decides a booking succeeded or checks availability. This handler
-just adapts Gemini's raw (untrusted) call arguments into that function
-via the existing schemas.BookingCreate validation, and turns the
-outcome into a small structured result for the model to relay; it never
-writes anything itself and never claims success on its own authority.
+The booking tool handler (Stage 3 Step 6B: extracted into
+app/booking_tool.py so WhatsApp uses exactly the same implementation)
+is the ONLY thing standing between "the model decided to call
+create_booking" and an actual database write. It always routes through
+app/booking.py's create_booking() — the same function admin booking
+management uses — so there is exactly one place that ever decides a
+booking succeeded or checks availability. It just adapts Gemini's raw
+(untrusted) call arguments into that function via the existing
+schemas.BookingCreate validation, and turns the outcome into a small
+structured result for the model to relay; it never writes anything
+itself and never claims success on its own authority.
 
 Conversation persistence never touches this contract: restaurant_id is
 resolved server-side from the request body exactly as before, and the
@@ -27,18 +29,17 @@ LLM never sees or controls conversation identity — llm.py itself is
 completely unmodified by Step 5 (no new parameters, no changed return
 shape). The only new signal chat.py needs — whether the model actually
 called the booking tool this turn — is captured via a small mutable
-flag closed over by _make_booking_tool_handler below, not by changing
-llm.py's interface.
+flag closed over by make_booking_tool_handler (app/booking_tool.py),
+not by changing llm.py's interface.
 """
 
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from .. import conversations, models, schemas, knowledge, llm
-from ..booking import BookingConflictError, create_booking
+from ..booking_tool import make_booking_tool_handler
 from ..database import get_db
 from ..rate_limit import chat_rate_limiter
 
@@ -49,55 +50,6 @@ router = APIRouter(
     tags=["chat"],
     dependencies=[Depends(chat_rate_limiter)],
 )
-
-
-def _summarize_validation_error(error: ValidationError) -> str:
-    """A short, LLM-relayable summary of what was wrong with the booking
-    arguments — not the raw Pydantic error (which includes internal
-    type/URL noise not meant for an end user)."""
-    parts = []
-    for err in error.errors():
-        field = ".".join(str(loc) for loc in err["loc"])
-        parts.append(f"{field}: {err['msg']}")
-    return "Invalid booking details — " + "; ".join(parts)
-
-
-def _make_booking_tool_handler(db: Session, restaurant: models.Restaurant, tool_call_flag: list):
-    """
-    Builds the callback passed to llm.generate_reply(). Never raises —
-    always returns a JSON-serialisable dict describing what happened,
-    for the model to relay. Never logs customer_name/phone/email;
-    create_booking() itself only logs id/date/time/party_size, per the
-    project's no-PII-in-logs policy, and this function doesn't log at
-    all beyond that.
-
-    tool_call_flag is a plain list used purely as a mutable out-param:
-    appending to it when this handler actually runs is how chat.py
-    learns "a tool call happened" without llm.py needing to say so
-    itself (its return shape stays exactly what it always was).
-    """
-
-    def handle(args: dict) -> dict:
-        tool_call_flag.append(True)
-        try:
-            data = schemas.BookingCreate(**args)
-        except ValidationError as e:
-            return {"status": "rejected", "reason": _summarize_validation_error(e)}
-
-        try:
-            booking = create_booking(db, restaurant, data)
-        except BookingConflictError as e:
-            return {"status": "rejected", "reason": str(e)}
-
-        return {
-            "status": "confirmed",
-            "booking_id": booking.id,
-            "booking_date": booking.booking_date.isoformat(),
-            "booking_time": booking.booking_time.isoformat(),
-            "party_size": booking.party_size,
-        }
-
-    return handle
 
 
 @router.post("", response_model=schemas.ChatResponse)
@@ -133,7 +85,7 @@ def chat(request: schemas.ChatRequest, response: Response, db: Session = Depends
             user_message=request.message,
             history=history,
             restaurant_context=restaurant_context,
-            book_tool_handler=_make_booking_tool_handler(db, restaurant, tool_call_flag),
+            book_tool_handler=make_booking_tool_handler(db, restaurant, tool_call_flag),
         )
 
         # Only reached once a reply genuinely exists — never on any

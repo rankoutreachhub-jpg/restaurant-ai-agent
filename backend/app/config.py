@@ -78,6 +78,37 @@ ALLOWED_ORIGINS = [
 # matter which folder the server was launched from.
 LOG_DIR = Path(os.getenv("LOG_DIR", str(BACKEND_DIR / "logs"))).resolve()
 
+# --- WhatsApp integration (Stage 3 Step 6B) ---
+# All four are optional: WhatsApp is an opt-in feature (a restaurant
+# only gets a phone_number_id mapping — see app/models.py:WhatsAppNumber
+# — once an operator sets one up), so unlike GEMINI_API_KEY/
+# ADMIN_API_KEY above, none of these are required at startup, and CI
+# never needs real Meta credentials to run. Left unset, the webhook
+# endpoints simply reject every request (fail closed — see
+# app/routers/whatsapp.py) rather than the server refusing to start.
+
+# The value Meta's webhook GET-verification request must present as
+# hub.verify_token (see app/routers/whatsapp.py) — set this to whatever
+# you enter as the "Verify token" when configuring the webhook in the
+# Meta App Dashboard.
+WHATSAPP_VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "").strip()
+
+# Your Meta app's App Secret, used to verify the X-Hub-Signature-256
+# HMAC-SHA256 header on every webhook POST (see app/routers/whatsapp.py)
+# — proves a webhook request genuinely came from Meta before anything
+# in it is trusted or touches the database.
+WHATSAPP_APP_SECRET = os.getenv("WHATSAPP_APP_SECRET", "").strip()
+
+# Access token used to call the Meta Graph "send message" API (see
+# app/whatsapp_client.py). v1 uses one platform-wide token for every
+# restaurant's WhatsApp number — see WhatsAppNumber in app/models.py for
+# why no per-restaurant token is ever stored in the database.
+WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
+
+# Graph API version to call, e.g. "v21.0". Kept configurable so a future
+# Meta API version bump is a one-line env change, not a code change.
+WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
+
 
 def validate_config():
     """

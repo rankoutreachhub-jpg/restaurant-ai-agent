@@ -113,6 +113,85 @@ def list_restaurants(db: Session = Depends(get_db)):
 
 
 # =========================================================
+# WHATSAPP NUMBER MAPPING (Stage 3 Step 6B: one WhatsApp
+# phone_number_id per restaurant — see app/models.py:WhatsAppNumber)
+# =========================================================
+
+@router.post(
+    "/restaurants/{restaurant_id}/whatsapp-number",
+    response_model=schemas.WhatsAppNumberOut,
+    status_code=201,
+)
+def set_whatsapp_number(
+    restaurant_id: int, data: schemas.WhatsAppNumberCreate, db: Session = Depends(get_db)
+):
+    """
+    Creates or replaces the ONE WhatsApp number mapping for this
+    restaurant (v1 architecture: exactly one per restaurant — POST is
+    an upsert, since there is nothing to PATCH partially and no
+    separate create-only endpoint). Rejects (409) a phone_number_id
+    already mapped to a DIFFERENT restaurant — phone_number_id is
+    globally unique, so that would silently misroute every future
+    message from that WhatsApp number.
+    """
+    _get_restaurant_or_404(db, restaurant_id)
+
+    conflicting = (
+        db.query(models.WhatsAppNumber)
+        .filter(
+            models.WhatsAppNumber.phone_number_id == data.phone_number_id,
+            models.WhatsAppNumber.restaurant_id != restaurant_id,
+        )
+        .first()
+    )
+    if conflicting:
+        raise HTTPException(
+            status_code=409,
+            detail="This WhatsApp phone_number_id is already mapped to a different restaurant.",
+        )
+
+    mapping = (
+        db.query(models.WhatsAppNumber)
+        .filter(models.WhatsAppNumber.restaurant_id == restaurant_id)
+        .first()
+    )
+    if mapping:
+        mapping.phone_number_id = data.phone_number_id
+        mapping.display_phone_number = data.display_phone_number
+    else:
+        mapping = models.WhatsAppNumber(
+            restaurant_id=restaurant_id,
+            phone_number_id=data.phone_number_id,
+            display_phone_number=data.display_phone_number,
+        )
+        db.add(mapping)
+
+    db.commit()
+    db.refresh(mapping)
+
+    logger.info("WhatsApp number mapped (restaurant_id=%s)", restaurant_id)
+    return mapping
+
+
+@router.delete("/restaurants/{restaurant_id}/whatsapp-number")
+def delete_whatsapp_number(restaurant_id: int, db: Session = Depends(get_db)):
+    _get_restaurant_or_404(db, restaurant_id)
+
+    mapping = (
+        db.query(models.WhatsAppNumber)
+        .filter(models.WhatsAppNumber.restaurant_id == restaurant_id)
+        .first()
+    )
+    if mapping:
+        db.delete(mapping)
+        db.commit()
+        logger.info("WhatsApp number unmapped (restaurant_id=%s)", restaurant_id)
+        return {"message": "WhatsApp number mapping removed"}
+
+    return {"message": "No WhatsApp number was mapped"}
+
+
+# =========================================================
 # CREATE ADMIN USER (issues a scoped key, shown once)
 # =========================================================
 

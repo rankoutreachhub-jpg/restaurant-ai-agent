@@ -302,6 +302,25 @@ class RestaurantOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- WhatsApp number mapping (Stage 3 Step 6B) ---
+# Superadmin-only, platform-admin management of the one-per-restaurant
+# WhatsApp phone_number_id mapping — see app/models.py:WhatsAppNumber.
+
+class WhatsAppNumberCreate(BaseModel):
+    phone_number_id: str = Field(..., min_length=1)
+    display_phone_number: str = Field(..., min_length=1)
+
+
+class WhatsAppNumberOut(BaseModel):
+    id: int
+    restaurant_id: int
+    phone_number_id: str
+    display_phone_number: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Conversations (Stage 3 Step 5: persistence) ---
 # Read-only admin views. public_token is deliberately never included —
 # it's the anonymous-customer-facing handle, not something an admin

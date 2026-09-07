@@ -561,6 +561,91 @@ Notes:
   still gets full context via the client's own `history`, exactly as
   before this stage).
 
+### WhatsApp integration (Stage 3 Step 6B)
+
+Customers can message a restaurant's WhatsApp Business number and get
+the exact same AI assistant as web `/chat` — same restaurant data, same
+booking capability (`app/booking_tool.py`, shared with web chat, not a
+second implementation), same "never invent facts" system prompt. This is
+opt-in per restaurant: nothing WhatsApp-related activates until an
+operator maps a restaurant to a `phone_number_id` (see "Admin: mapping a
+restaurant's WhatsApp number" below).
+
+**v1 architecture, deliberately minimal:**
+- **One WhatsApp number per restaurant.** `whatsapp_numbers` maps one
+  Meta `phone_number_id` to one restaurant — enforced with a unique
+  constraint at the database level, not just in application code.
+- **No task queue.** Processing (Gemini, the booking tool, the outbound
+  Send API call) runs in a FastAPI `BackgroundTasks` callback, after the
+  webhook has already acknowledged Meta with HTTP 200 — no Redis,
+  Celery, RQ, or other broker. If the process restarts mid-processing,
+  that one in-flight message is simply lost; there is no persistent
+  retry queue. Meta will not redeliver a message it already got a 200
+  for, so this is a real, accepted v1 limitation, not a bug.
+- **One platform-wide access token**, not a per-restaurant credential —
+  see `WHATSAPP_ACCESS_TOKEN` below. `whatsapp_numbers` stores no
+  secrets, only the public `phone_number_id`/`display_phone_number`.
+- **Text messages only.** Media, buttons, location, interactive lists,
+  and template messages are all out of scope for v1 — a non-text message
+  is dropped (logged, never processed) rather than mishandled.
+
+**Meta's 24-hour customer-service window:** a message from a phone
+number the restaurant has already heard from resumes that conversation
+if the last activity was within 24 hours (UTC); otherwise a new
+conversation starts, mirroring Meta's own session rule
+(`app/conversations.get_or_create_whatsapp_conversation`).
+
+**Message idempotency:** Meta can and does redeliver webhook events.
+Every inbound message's id is checked against every previously-persisted
+message before any processing happens — a redelivered message is
+detected and dropped before Gemini, before the booking tool, and before
+a second outbound reply, never processed twice.
+
+**Webhook security** (`GET`/`POST /webhooks/whatsapp`):
+- `GET` is Meta's one-time verification handshake — validates
+  `hub.verify_token` (constant-time comparison) and echoes back
+  `hub.challenge`.
+- Every `POST` must carry a valid `X-Hub-Signature-256` header — an
+  HMAC-SHA256 of the **raw** request body, keyed with
+  `WHATSAPP_APP_SECRET` — checked before any JSON parsing or database
+  access. An invalid or missing signature is rejected outright.
+- Restaurant identity is **never** taken from the payload itself — only
+  from `phone_number_id`, looked up against `whatsapp_numbers`. An
+  unrecognised `phone_number_id` drops the message; it never falls back
+  to any restaurant.
+
+**Admin: mapping a restaurant's WhatsApp number** (superadmin-only, same
+authorization model as every other platform-admin endpoint):
+| Method & path | Purpose |
+|---|---|
+| `POST /admin/platform/restaurants/{id}/whatsapp-number` | Create or replace this restaurant's mapping (upsert — there's only ever one) |
+| `DELETE /admin/platform/restaurants/{id}/whatsapp-number` | Remove the mapping |
+
+**Setting it up locally:** Meta needs a public HTTPS URL to send webhook
+events to, which `http://127.0.0.1:8000` isn't. Use a tunnel such as
+[ngrok](https://ngrok.com/) (`ngrok http 8000`) during local development
+and testing, and point the Meta App Dashboard's webhook URL at the
+tunnel's HTTPS URL plus `/webhooks/whatsapp`. This is a local-dev-only
+requirement — a real deployment just needs its own real public HTTPS
+URL, no tunnel involved.
+
+**Required environment variables** (see `.env.example` — all optional;
+WhatsApp simply stays inert, rejecting every webhook request, until
+they're set):
+- `WHATSAPP_VERIFY_TOKEN` — must match what you enter as the webhook's
+  "Verify token" in the Meta App Dashboard.
+- `WHATSAPP_APP_SECRET` — your Meta app's App Secret, used to verify
+  every webhook POST's signature.
+- `WHATSAPP_ACCESS_TOKEN` — used to call the Meta Graph "send message"
+  API.
+- `WHATSAPP_API_VERSION` — defaults to `v21.0` if not set.
+
+**Known v1 limitations** (all deliberate, matching the points above):
+no persistent retry queue, no per-restaurant WhatsApp credentials, no
+template messages, no rich media/buttons/location/interactive lists, and
+no automated retention/deletion job for WhatsApp conversations (same
+as web chat — see "Conversation persistence" above).
+
 ---
 
 ## 4. Exact commands to test each part
@@ -702,9 +787,11 @@ that information to hand — I'll flag it to the team" rather than guessing.
   admin *interface*; every admin/platform-admin operation today is an
   authenticated HTTP call (curl/PowerShell/Postman), not a UI.
 - Table bookings exist and are both admin-managed (see "Table bookings"
-  above) and reachable through AI-assisted `/chat` booking via Gemini
-  function calling (`app/llm.py`). No calendar sync, payments, or
-  WhatsApp/SMS integration yet.
+  above) and reachable through AI-assisted booking via Gemini function
+  calling (`app/booking_tool.py`), on both web `/chat` and, since Stage 3
+  Step 6B, WhatsApp (see "WhatsApp integration" below) — the exact same
+  booking implementation either way. No calendar sync, payments, SMS, or
+  any channel beyond web chat and WhatsApp yet.
 - Restaurant/menu/hours data is editable via the `/admin/*` API (see
   "Admin authentication" above), but there's still no admin *interface*
   — a future stage. Schema changes themselves now go through Alembic
