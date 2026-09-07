@@ -109,6 +109,21 @@ WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
 # Meta API version bump is a one-line env change, not a code change.
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 
+# --- Widget CORS (Stage 4 Phase D) ---
+# A single platform-level trusted origin — e.g. wherever the admin
+# dashboard is hosted — always permitted against ANY restaurant's
+# widget_key, regardless of that restaurant's own configured allowed
+# origins (see app/widget_cors.py). This is orthogonal to, not a
+# substitute for, the admin key an operator already needs to preview
+# their own widget — it's not a per-restaurant grant.
+#
+# Currently inert: nothing in this codebase yet makes a cross-origin
+# call from this origin (there is no admin-dashboard "preview my
+# widget" feature yet — a later phase's concern). Included now so a
+# future phase doesn't need to touch app/widget_cors.py again just to
+# add it. Optional — leave unset until it's actually needed.
+WIDGET_PREVIEW_ORIGIN = os.getenv("WIDGET_PREVIEW_ORIGIN", "").strip()
+
 
 def validate_config():
     """

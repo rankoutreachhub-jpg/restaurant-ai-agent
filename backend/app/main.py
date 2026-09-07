@@ -17,6 +17,7 @@ from .database import SessionLocal
 from .logging_config import configure_logging
 from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
 from .seed_data import seed_if_empty
+from .widget_cors import widget_cors_middleware
 
 # Console + rotating log file for errors and important events (see
 # app/logging_config.py) — set up before anything else logs, so nothing
@@ -67,6 +68,16 @@ app.add_middleware(
     # origin ALLOWED_ORIGINS already trusted, never widen that allowlist.
     expose_headers=["X-Conversation-Token"],
 )
+
+
+# Registered AFTER the global CORSMiddleware above so it becomes the
+# OUTERMOST layer (Starlette/ASGI middleware runs in reverse registration
+# order — the last one added wraps everything registered before it). This
+# is what lets it fully own the CORS decision (including preflight) for
+# every /widget/* request before the global CORSMiddleware ever sees it,
+# while every other path still reaches that global middleware unchanged.
+# See app/widget_cors.py's module docstring for the full rationale.
+app.middleware("http")(widget_cors_middleware)
 
 
 app.include_router(chat.router)
