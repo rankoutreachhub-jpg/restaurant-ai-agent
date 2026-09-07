@@ -53,7 +53,7 @@ def _generate_public_token() -> str:
 
 
 def get_or_create_conversation(
-    db: Session, restaurant: models.Restaurant, public_token: Optional[str]
+    db: Session, restaurant: models.Restaurant, public_token: Optional[str], channel: str = "web"
 ) -> Tuple[models.Conversation, bool]:
     """
     Returns (conversation, is_new). If public_token is given and
@@ -61,6 +61,15 @@ def get_or_create_conversation(
     conversation is reused. Otherwise (no token, unknown token, or a
     token belonging to a different restaurant) a brand-new conversation
     is created and returned — never an error, never a hint about why.
+
+    channel (Stage 4 Phase C) only affects a newly-created conversation
+    — it's how the customer widget tags its own conversations as
+    "widget" rather than the default "web", so the admin conversation
+    inbox (Stage 3 Step 6A) can tell them apart, the same way it already
+    distinguishes "web" from "whatsapp". Every existing caller keeps the
+    default and is completely unaffected. Resuming an existing
+    conversation is unchanged either way — still keyed purely by
+    (public_token, restaurant_id), never by channel.
     """
     if public_token:
         existing = (
@@ -77,6 +86,7 @@ def get_or_create_conversation(
     conversation = models.Conversation(
         restaurant_id=restaurant.id,
         public_token=_generate_public_token(),
+        channel=channel,
     )
     db.add(conversation)
     db.commit()

@@ -147,3 +147,29 @@ admin_rate_limiter = RateLimiter(max_requests=30, window_seconds=60, name="admin
 # — see app/whatsapp_processing.py, which calls .check(key) directly
 # since it runs outside any FastAPI request/dependency context.
 whatsapp_rate_limiter = RateLimiter(max_requests=10, window_seconds=60, name="whatsapp")
+
+
+def _widget_chat_key(request: Request) -> str:
+    # widget_key first, so one restaurant's budget can never be shared
+    # with or drained by another restaurant's traffic — the IP suffix
+    # additionally means one abusive visitor can't exhaust an entire
+    # restaurant's own quota and lock out that restaurant's other
+    # genuine customers. Same composite-key shape as WhatsApp's own
+    # (phone_number_id, customer phone) key above, for the same reason.
+    widget_key = request.path_params.get("widget_key", "unknown")
+    return f"{widget_key}:{_client_ip_key(request)}"
+
+
+# 10 messages/minute per (widget_key, client IP) — same budget as
+# chat_rate_limiter/whatsapp_rate_limiter and for the same reason
+# (Gemini costs real money). Unlike whatsapp_rate_limiter, this IS used
+# as a normal FastAPI dependency (Depends(widget_chat_rate_limiter)) —
+# app/routers/widget.py's chat route is a plain synchronous request
+# handler, not a BackgroundTasks callback, so it has a real Request to
+# derive path_params from, the same way chat_rate_limiter/
+# admin_rate_limiter already do via key_func. Deliberately a separate
+# instance from chat_rate_limiter — completely independent counters, so
+# widget traffic can never affect legacy /chat's own budget or vice versa.
+widget_chat_rate_limiter = RateLimiter(
+    max_requests=10, window_seconds=60, name="widget_chat", key_func=_widget_chat_key
+)
