@@ -17,6 +17,7 @@ from starlette.staticfiles import StaticFiles
 from . import config
 from .database import SessionLocal
 from .logging_config import configure_logging
+from .monitoring import init_sentry
 from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
 from .seed_data import seed_if_empty
 from .widget_cors import widget_cors_middleware
@@ -25,6 +26,10 @@ from .widget_cors import widget_cors_middleware
 # app/logging_config.py) — set up before anything else logs, so nothing
 # is missed.
 configure_logging()
+
+# A no-op unless SENTRY_DSN is set — see app/monitoring.py for the full
+# privacy/scrubbing design (Production Readiness Audit BLOCKER #1).
+init_sentry()
 
 config.validate_config()
 

@@ -124,6 +124,29 @@ WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 # add it. Optional — leave unset until it's actually needed.
 WIDGET_PREVIEW_ORIGIN = os.getenv("WIDGET_PREVIEW_ORIGIN", "").strip()
 
+# --- Error tracking (Sentry) ---
+# Fully optional and off by default: leaving SENTRY_DSN unset means
+# app/monitoring.py never calls sentry_sdk.init() at all, so nothing is
+# collected and nothing is sent anywhere — see that module for the full
+# privacy/scrubbing design. Set this to a real Sentry project DSN to
+# turn on error tracking in any environment (local, Docker, production).
+SENTRY_DSN = os.getenv("SENTRY_DSN", "").strip()
+
+# Free-text label shown in the Sentry UI to tell environments apart
+# (e.g. "production", "staging"). Purely cosmetic — never affects what
+# is or isn't captured.
+SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "production").strip()
+
+# Fraction (0.0-1.0) of requests to sample for Sentry's performance
+# tracing feature — separate from error capture, which always happens
+# regardless of this value. Defaults to 0.0 (tracing off) because this
+# task is about error tracking, not APM; raise it deliberately later if
+# performance tracing is ever wanted.
+try:
+    SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0"))
+except ValueError:
+    SENTRY_TRACES_SAMPLE_RATE = 0.0
+
 
 def validate_config():
     """
