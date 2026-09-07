@@ -461,6 +461,46 @@ locally and are never committed.
 
 ---
 
+### Error tracking (Sentry)
+
+Optional and off by default. Set `SENTRY_DSN` in `.env` to a real
+Sentry project DSN to start reporting unhandled server-side exceptions
+there; leave it unset and `app/monitoring.py`'s `init_sentry()` never
+calls `sentry_sdk.init()` at all — no import side effects, no network
+calls, nothing collected or sent anywhere. Works the same way locally,
+in Docker, or in production — nothing else to configure.
+
+Two more variables are optional: `SENTRY_ENVIRONMENT` (a free-text
+label shown in the Sentry UI, e.g. `production`/`staging` — defaults
+to `production`) and `SENTRY_TRACES_SAMPLE_RATE` (0.0–1.0, for Sentry's
+separate performance-tracing feature — defaults to `0.0`; error capture
+itself always happens regardless of this value).
+
+**What's never sent, regardless of configuration** — customer chat
+message content, names, phone numbers, emails, booking details, admin
+API keys, WhatsApp access tokens/signatures, conversation tokens, or
+any request body/header. This holds even if a bug were ever introduced
+at a call site, via three independent layers (see `app/monitoring.py`
+for the full detail): local variables are never attached to a captured
+exception at all (`include_local_variables=False` — the setting that
+matters most, since request/customer data is exactly what sits in
+local variables at the point an error is caught); request bodies,
+headers, cookies, and query strings are stripped from every event
+before it's sent; and this project's own existing logging discipline
+(above) already keeps `logger.exception(...)` calls free of message
+content or secrets, which is what Sentry's default logging integration
+actually captures for the app's three existing "catch and return a
+generic 500" sites (`routers/chat.py`, `routers/widget.py`,
+`whatsapp_processing.py`) — no source-code change was needed at any of
+those three sites for this to work.
+
+The generic, non-revealing 500 response the client receives is
+completely unchanged by whether Sentry is configured — see "What's
+deliberately never logged" above; the same detail that was always kept
+out of the HTTP response stays out of it.
+
+---
+
 ### Table bookings (Stage 2a)
 
 Admin-managed table bookings, protected exactly like every other
