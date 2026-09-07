@@ -306,3 +306,41 @@ class WidgetConfig(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     restaurant = relationship("Restaurant")
+    allowed_origins = relationship(
+        "WidgetAllowedOrigin", back_populates="widget_config", cascade="all, delete-orphan",
+        order_by="WidgetAllowedOrigin.created_at",
+    )
+
+
+class WidgetAllowedOrigin(Base):
+    """
+    One browser origin a restaurant's widget may be embedded on (Stage 4
+    Phase D — strict per-restaurant CORS). A WidgetConfig may have zero
+    or more of these; zero means "not yet locked down" — see
+    app/widget_cors.py for what that means for a real browser request
+    (fail closed, not fail open).
+
+    `origin` is stored EXACTLY as a browser's Origin header would send
+    it — "scheme://host[:port]", lowercased, no path/query/fragment/
+    trailing slash — validated at write time (see
+    schemas.WidgetAllowedOriginCreate) so this table can never contain a
+    value that wouldn't exact-match a real request. No wildcard
+    subdomains in v1: "https://example.com" and "https://www.example.com"
+    are two separate rows, not one pattern.
+
+    The unique constraint is scoped to (widget_config_id, origin), not
+    origin alone — the same literal origin (e.g. a shared local-dev
+    address like "http://127.0.0.1:5500") can legitimately be registered
+    by multiple different restaurants without conflict.
+    """
+    __tablename__ = "widget_allowed_origins"
+    __table_args__ = (
+        UniqueConstraint("widget_config_id", "origin", name="uq_widget_allowed_origins_config_origin"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    widget_config_id = Column(Integer, ForeignKey("widget_configs.id"), nullable=False, index=True)
+    origin = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    widget_config = relationship("WidgetConfig", back_populates="allowed_origins")

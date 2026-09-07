@@ -11,7 +11,7 @@ admin privilege of its own.
 WIDGET_CONFIG_PUBLIC_FIELDS = {
     "id", "restaurant_id", "widget_key", "welcome_message",
     "primary_language", "logo_url", "accent_color",
-    "booking_enabled", "is_active", "created_at",
+    "booking_enabled", "is_active", "created_at", "allowed_origins",
 }
 
 

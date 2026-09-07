@@ -581,3 +581,98 @@ def upsert_widget_config(
 
     logger.info("Widget config upserted (restaurant_id=%s)", restaurant_id)
     return config
+
+
+def _get_widget_config_or_404(db: Session, restaurant_id: int) -> models.WidgetConfig:
+    config = (
+        db.query(models.WidgetConfig)
+        .filter(models.WidgetConfig.restaurant_id == restaurant_id)
+        .first()
+    )
+    if not config:
+        raise HTTPException(status_code=404, detail="No widget config exists for this restaurant yet")
+    return config
+
+
+# =========================================================
+# WIDGET ALLOWED ORIGINS (Stage 4 Phase D: strict per-restaurant CORS)
+# =========================================================
+# A restaurant's widget may have zero or more allowed browser origins —
+# see app/models.py:WidgetAllowedOrigin and app/widget_cors.py for how
+# these are actually enforced on the public /widget/* surface. Exact
+# origins only, no wildcard subdomains in v1.
+
+@router.post(
+    "/restaurant/{restaurant_id}/widget-config/origins",
+    response_model=schemas.WidgetAllowedOriginOut,
+    status_code=201,
+)
+def add_widget_allowed_origin(
+    restaurant_id: int,
+    data: schemas.WidgetAllowedOriginCreate,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+    config = _get_widget_config_or_404(db, restaurant_id)
+
+    existing = (
+        db.query(models.WidgetAllowedOrigin)
+        .filter(
+            models.WidgetAllowedOrigin.widget_config_id == config.id,
+            models.WidgetAllowedOrigin.origin == data.origin,
+        )
+        .first()
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="This origin is already allowed for this widget.")
+
+    origin_row = models.WidgetAllowedOrigin(widget_config_id=config.id, origin=data.origin)
+    db.add(origin_row)
+    try:
+        db.commit()
+    except IntegrityError:
+        # Backstop for a concurrent request registering the same origin
+        # between the check above and this commit — the unique
+        # constraint on (widget_config_id, origin) is what actually
+        # prevents the duplicate; this just turns it into the same 409
+        # instead of a raw 500.
+        db.rollback()
+        raise HTTPException(status_code=409, detail="This origin is already allowed for this widget.")
+    db.refresh(origin_row)
+
+    logger.info("Widget allowed origin added (restaurant_id=%s)", restaurant_id)
+    return origin_row
+
+
+@router.delete("/restaurant/{restaurant_id}/widget-config/origins/{origin_id}")
+def delete_widget_allowed_origin(
+    restaurant_id: int,
+    origin_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+    config = _get_widget_config_or_404(db, restaurant_id)
+
+    # Scoped to THIS restaurant's own widget_config_id — an origin_id
+    # belonging to a different restaurant's widget never matches here,
+    # regardless of the caller's own authorization, so it 404s exactly
+    # like a nonexistent id would rather than ever deleting someone
+    # else's row.
+    origin_row = (
+        db.query(models.WidgetAllowedOrigin)
+        .filter(
+            models.WidgetAllowedOrigin.id == origin_id,
+            models.WidgetAllowedOrigin.widget_config_id == config.id,
+        )
+        .first()
+    )
+    if not origin_row:
+        raise HTTPException(status_code=404, detail="Allowed origin not found")
+
+    db.delete(origin_row)
+    db.commit()
+
+    logger.info("Widget allowed origin removed (restaurant_id=%s)", restaurant_id)
+    return {"message": "Allowed origin removed", "origin_id": origin_id}

@@ -383,6 +383,53 @@ class WidgetConfigUpdate(BaseModel):
         return v
 
 
+def _validate_exact_origin(v: str) -> str:
+    """
+    Enforces exactly "scheme://host[:port]" — the literal shape a
+    browser's Origin header always takes (no path, query, fragment, or
+    trailing slash) — and normalizes scheme/host to lowercase for
+    case-insensitive comparison (browsers always send lowercase anyway;
+    this is purely defensive). No wildcard subdomains in v1: this
+    accepts one exact origin per call, never a pattern.
+    """
+    parsed = urlparse(v.strip())
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError('origin must start with "http://" or "https://"')
+    if not parsed.hostname:
+        raise ValueError("origin must include a host")
+    if "*" in parsed.hostname:
+        raise ValueError("origin must not contain a wildcard — register each exact host separately")
+    if parsed.path or parsed.params or parsed.query or parsed.fragment:
+        raise ValueError(
+            'origin must be exactly "scheme://host[:port]" — no path, query, '
+            "fragment, or trailing slash"
+        )
+    normalized = f"{parsed.scheme.lower()}://{parsed.hostname.lower()}"
+    if parsed.port:
+        normalized += f":{parsed.port}"
+    return normalized
+
+
+WIDGET_ORIGIN_MAX_LENGTH = 255
+
+
+class WidgetAllowedOriginCreate(BaseModel):
+    origin: str = Field(..., min_length=1, max_length=WIDGET_ORIGIN_MAX_LENGTH)
+
+    @field_validator("origin")
+    @classmethod
+    def _check_origin(cls, v):
+        return _validate_exact_origin(v)
+
+
+class WidgetAllowedOriginOut(BaseModel):
+    id: int
+    origin: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class WidgetConfigOut(BaseModel):
     id: int
     restaurant_id: int
@@ -394,6 +441,7 @@ class WidgetConfigOut(BaseModel):
     booking_enabled: bool
     is_active: bool
     created_at: datetime
+    allowed_origins: List[WidgetAllowedOriginOut] = []
 
     model_config = {"from_attributes": True}
 

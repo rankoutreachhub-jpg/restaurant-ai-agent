@@ -383,6 +383,46 @@ page's JavaScript from reading it. A CORS *preflight* request (sent
 automatically by browsers before some cross-origin calls) from a
 disallowed origin gets `400 Bad Request`.
 
+Everything above governs `/admin`, `/chat`, `/webhooks/whatsapp`, and
+`/health` — it does **not** apply to the public widget endpoints under
+`/widget/*`, which use their own, separate mechanism (below).
+
+#### Widget allowed origins (Stage 4 Phase D)
+
+`ALLOWED_ORIGINS` is a single, operator-configured list — fine for this
+project's own admin dashboard and chat frontend, but the widget can be
+embedded on any restaurant's own website, which can't be known or
+pre-registered as one shared list. So each restaurant's widget instead
+has its own allowed-origin set, managed per-restaurant through the admin
+API:
+
+```
+POST   /admin/restaurant/{id}/widget-config/origins           {"origin": "https://www.your-restaurant.com"}
+DELETE /admin/restaurant/{id}/widget-config/origins/{origin_id}
+```
+
+`GET`/`POST /admin/restaurant/{id}/widget-config` also returns the
+restaurant's current `allowed_origins` list. An origin must be an exact
+`scheme://host[:port]` — no path, query, fragment, trailing slash, or
+wildcard subdomain — matching the literal `Origin` header a browser
+sends, and each origin needs its own row (`https://example.com` and
+`https://www.example.com` are two separate entries).
+
+A widget with **zero** configured origins fails closed: every
+cross-origin browser request to its `/widget/{widget_key}/config` or
+`/widget/{widget_key}/chat` is rejected (`403`, no CORS headers) until at
+least one origin is registered. A non-browser request (no `Origin`
+header — curl, server-to-server) is unaffected either way. An unknown or
+inactive `widget_key` still gets the same generic `404` it always did,
+never a `403` — this check only ever narrows an *already-resolved*
+widget's own request, and never doubles as a way to probe which
+`widget_key`s exist.
+
+`WIDGET_PREVIEW_ORIGIN` (optional, see `.env.example`) is a separate,
+platform-level carve-out — a single origin permitted against *any*
+restaurant's `widget_key`, for a future internal "preview this widget"
+feature. It has no effect today; leave it unset.
+
 ---
 
 ### Application logging
