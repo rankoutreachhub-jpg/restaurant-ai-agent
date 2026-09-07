@@ -147,8 +147,8 @@ class AdminRestaurantAccess(Base):
 
 class Conversation(Base):
     """
-    A persisted /chat conversation (Stage 3 Step 5). Two identifiers,
-    two trust boundaries:
+    A persisted /chat conversation (Stage 3 Step 5; Stage 3 Step 6B adds
+    the WhatsApp channel). Two identifiers, two trust boundaries:
       - `id` (the normal integer PK) is used internally and by the
         authenticated admin surface (routers/conversations.py), exactly
         like every other resource's id.
@@ -159,21 +159,41 @@ class Conversation(Base):
         app/conversations.py's generation, same style as
         app/admin_keys.py) because on a public, unauthenticated surface
         a small sequential integer would let anyone enumerate other
-        customers' conversations by incrementing a request field.
+        customers' conversations by incrementing a request field. A
+        WhatsApp conversation still gets one (every other admin/
+        persistence code path already assumes one exists), but it is
+        never handed to the WhatsApp customer — that channel's identity
+        is external_id, not public_token.
 
     No status/lifecycle field: nothing in the current stateless
     request/response chat flow can detect "this conversation is over,"
-    so adding one now would have zero consumers. `channel` (default
-    "web") is the one deliberate forward-looking column, seeding the
-    future WhatsApp integration without a later backfill-guess migration.
+    so adding one now would have zero consumers. `channel` ("web" or,
+    since Stage 3 Step 6B, "whatsapp") is the one deliberate forward-
+    looking column from Step 5, seeding the WhatsApp integration without
+    a later backfill-guess migration.
+
+    `external_id` (Stage 3 Step 6B) is the channel's own identifier for
+    who this conversation is with — for WhatsApp, the customer's E.164
+    phone number (see app/phone.py) — nullable because "web" conversations
+    have no such external identity. The composite index below is what
+    app/conversations.get_or_create_whatsapp_conversation() queries to
+    resolve "does this restaurant already have a recent conversation with
+    this WhatsApp customer".
     """
     __tablename__ = "conversations"
-    __table_args__ = (Index("ix_conversations_restaurant_id_updated_at", "restaurant_id", "updated_at"),)
+    __table_args__ = (
+        Index("ix_conversations_restaurant_id_updated_at", "restaurant_id", "updated_at"),
+        Index(
+            "ix_conversations_restaurant_channel_external",
+            "restaurant_id", "channel", "external_id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
     public_token = Column(String, unique=True, nullable=False, index=True)
     channel = Column(String, nullable=False, default="web")
+    external_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -199,6 +219,14 @@ class Message(Base):
 
     Write-once: a Message is never edited after creation, so unlike
     Conversation it needs no updated_at.
+
+    `external_message_id` (Stage 3 Step 6B) holds Meta's own WhatsApp
+    message id (the incoming customer message only — there is no
+    equivalent id for our own outbound reply). It is nullable (web chat
+    messages have none) but globally unique when present: Meta can and
+    does redeliver webhook events, and this is what lets
+    app/whatsapp_processing.py detect "we've already handled this exact
+    message" before ever calling Gemini or attempting a booking again.
     """
     __tablename__ = "messages"
     __table_args__ = (Index("ix_messages_conversation_id_created_at", "conversation_id", "created_at"),)
@@ -208,6 +236,35 @@ class Message(Base):
     role = Column(String, nullable=False)  # "user" | "assistant"
     content = Column(Text, nullable=False)
     triggered_tool_call = Column(Boolean, nullable=False, default=False)
+    external_message_id = Column(String, unique=True, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     conversation = relationship("Conversation", back_populates="messages")
+
+
+class WhatsAppNumber(Base):
+    """
+    Maps one Meta WhatsApp Business `phone_number_id` to one restaurant
+    (Stage 3 Step 6B). v1 architecture: exactly one WhatsApp number per
+    restaurant (uq restaurant_id below), and phone_number_id is globally
+    unique — the same number can't be mapped to two restaurants.
+
+    This is the ONLY way a webhook payload's phone_number_id is ever
+    turned into a restaurant_id (see app/whatsapp_processing.py); an
+    unrecognised phone_number_id resolves to no restaurant and the
+    message is dropped, never defaulted to another restaurant.
+
+    Deliberately no per-restaurant access token here — v1 uses one
+    platform-wide Meta app and WHATSAPP_ACCESS_TOKEN (app/config.py) for
+    every restaurant's number, so there is nothing sensitive to protect
+    on this row beyond the identifiers themselves.
+    """
+    __tablename__ = "whatsapp_numbers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, unique=True, index=True)
+    phone_number_id = Column(String, nullable=False, unique=True, index=True)
+    display_phone_number = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant = relationship("Restaurant")

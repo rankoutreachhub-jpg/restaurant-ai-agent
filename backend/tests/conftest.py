@@ -16,6 +16,14 @@ from pathlib import Path
 os.environ.setdefault("GEMINI_API_KEY", "AIzaSyTEST0000000000000000000000000")
 os.environ.setdefault("ADMIN_API_KEY", "test-admin-key-for-pytest-only")
 
+# Stage 3 Step 6B (WhatsApp): a fixed, known-in-tests value for each —
+# never a real Meta credential, exactly like GEMINI_API_KEY/ADMIN_API_KEY
+# above. Tests that need a validly-signed webhook request compute the
+# HMAC themselves using WHATSAPP_APP_SECRET (see tests/test_whatsapp_*.py).
+os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test-whatsapp-verify-token")
+os.environ.setdefault("WHATSAPP_APP_SECRET", "test-whatsapp-app-secret-not-real")
+os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test-whatsapp-access-token-not-real")
+
 _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"
@@ -37,7 +45,7 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.rate_limit import admin_rate_limiter, chat_rate_limiter
+from app.rate_limit import admin_rate_limiter, chat_rate_limiter, whatsapp_rate_limiter
 
 ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
 
@@ -142,4 +150,25 @@ def _reset_rate_limits():
     """
     chat_rate_limiter.reset()
     admin_rate_limiter.reset()
+    whatsapp_rate_limiter.reset()
     yield
+
+
+@pytest.fixture()
+def whatsapp_number(client, admin_headers):
+    """
+    Factory fixture: whatsapp_number(restaurant_id, phone_number_id, ...)
+    maps a restaurant to a WhatsApp phone_number_id via the real
+    /admin/platform/restaurants/{id}/whatsapp-number endpoint (using the
+    superadmin key) — no direct DB insert needed.
+    """
+    def _make(restaurant_id, phone_number_id="1000000000000000", display_phone_number="+15550001111"):
+        response = client.post(
+            f"/admin/platform/restaurants/{restaurant_id}/whatsapp-number",
+            json={"phone_number_id": phone_number_id, "display_phone_number": display_phone_number},
+            headers=admin_headers,
+        )
+        assert response.status_code == 201
+        return phone_number_id
+
+    return _make
