@@ -268,3 +268,41 @@ class WhatsAppNumber(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     restaurant = relationship("Restaurant")
+
+
+class WidgetConfig(Base):
+    """
+    Public-facing widget branding/config for a restaurant (Stage 4 Phase
+    A — Production Customer Widget). One per restaurant (v1) — same
+    "one per restaurant" shape as WhatsAppNumber above.
+
+    `widget_key` (see app/widget_keys.py) is the only identifier a
+    future customer-facing widget will ever carry — it is public (safe
+    to sit in plain HTML), high-entropy, and non-sequential, but it is
+    NOT a secret and grants no admin privilege: it only ever resolves to
+    this one restaurant's public branding/config, never to anything
+    behind X-Admin-API-Key. This phase only adds the table and
+    restaurant-scoped admin management of it — nothing yet reads
+    widget_key from an unauthenticated request (that's a later, separate
+    phase: a public GET /widget/{widget_key}/config endpoint).
+
+    All branding fields are nullable/defaulted — a restaurant can have a
+    row here with nothing customized yet, and the eventual public
+    surface falls back to sensible generated defaults (e.g. a welcome
+    message built from the restaurant's own name) rather than requiring
+    every field to be filled in before the widget can be used at all.
+    """
+    __tablename__ = "widget_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, unique=True, index=True)
+    widget_key = Column(String, nullable=False, unique=True, index=True)
+    welcome_message = Column(Text, nullable=True)
+    primary_language = Column(String, nullable=False, default="en-GB")
+    logo_url = Column(String, nullable=True)
+    accent_color = Column(String, nullable=True)
+    booking_enabled = Column(Boolean, nullable=False, default=True)
+    is_active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant = relationship("Restaurant")
