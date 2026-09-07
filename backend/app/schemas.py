@@ -420,6 +420,19 @@ class WidgetPublicConfigOut(BaseModel):
     booking_enabled: bool
 
 
+# --- Public widget chat (Stage 4 Phase C) ---
+# Deliberately minimal: no restaurant_id (tenant is resolved entirely
+# server-side from the widget_key in the URL — see
+# app/routers/widget.py), no history (a brand-new conversation always
+# starts empty; there is no legacy client to stay compatible with here,
+# unlike ChatRequest), and no conversation_token field — that's read
+# from the X-Conversation-Token request header instead, so it never
+# needs to appear in this body at all.
+
+class WidgetChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=CHAT_MESSAGE_MAX_LENGTH)
+
+
 # --- Conversations (Stage 3 Step 5: persistence) ---
 # Read-only admin views. public_token is deliberately never included —
 # it's the anonymous-customer-facing handle, not something an admin

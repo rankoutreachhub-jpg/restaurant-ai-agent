@@ -45,7 +45,9 @@ from fastapi.testclient import TestClient
 
 from app.database import SessionLocal
 from app.main import app
-from app.rate_limit import admin_rate_limiter, chat_rate_limiter, whatsapp_rate_limiter
+from app.rate_limit import (
+    admin_rate_limiter, chat_rate_limiter, whatsapp_rate_limiter, widget_chat_rate_limiter,
+)
 
 ADMIN_API_KEY = os.environ["ADMIN_API_KEY"]
 
@@ -151,6 +153,7 @@ def _reset_rate_limits():
     chat_rate_limiter.reset()
     admin_rate_limiter.reset()
     whatsapp_rate_limiter.reset()
+    widget_chat_rate_limiter.reset()
     yield
 
 
