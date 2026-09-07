@@ -8,9 +8,11 @@ from inside the backend/ folder.
 """
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.staticfiles import StaticFiles
 
 from . import config
 from .database import SessionLocal
@@ -87,6 +89,20 @@ app.include_router(platform_admin.router)
 app.include_router(conversations.router)
 app.include_router(whatsapp.router)
 app.include_router(widget.router)
+
+
+# Serves the embeddable widget.js (Stage 4 Phase E) — deliberately
+# mounted at /static/widget, NOT under /widget/*, so it can never be
+# mistaken for a widget_key by widget_cors_middleware's path-prefix
+# check above, and needs no CORS handling at all (a <script src> load
+# isn't CORS-gated by browsers the way fetch()/XHR are). Kept separate
+# from the admin dashboard and frontend/, neither of which the backend
+# serves.
+app.mount(
+    "/static/widget",
+    StaticFiles(directory=Path(__file__).resolve().parent / "static_widget"),
+    name="widget-static",
+)
 
 
 @app.get("/health")
