@@ -33,6 +33,12 @@ load_dotenv(dotenv_path=ENV_PATH)
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
+# Which Gemini model app/llm.py calls. Kept configurable (rather than a
+# hardcoded literal) so a future Google model retirement — exactly what
+# took gemini-2.5-flash down in production — is a one-line environment
+# variable change, not a code deploy.
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3.6-flash").strip()
+
 # Shared secret required in the "X-Admin-API-Key" header on every /admin/*
 # request (see app/auth.py). Simple pre-shared-key auth, not user accounts —
 # appropriate for a single-operator MVP admin surface.
