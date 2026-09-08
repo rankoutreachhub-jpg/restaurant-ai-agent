@@ -30,7 +30,7 @@ from . import config
 
 client = genai.Client(api_key=config.GEMINI_API_KEY)
 
-MODEL_NAME = "gemini-2.5-flash"
+MODEL_NAME = config.GEMINI_MODEL_NAME
 
 BOOKING_TOOL_NAME = "create_booking"
 
