@@ -316,7 +316,7 @@
 // Same convention as frontend/index.html: this is a plain static file
 // (no build step, often opened directly as file://), so relative fetch
 // paths won't reach the backend — the origin has to be spelled out.
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE = "https://restaurant-ai-agent-production-834f.up.railway.app";
 
 let adminKey = null;
 let identity = null;       // { is_superadmin, restaurant_ids }
@@ -366,6 +366,16 @@ async function describeError(response, fallback) {
 // Login / session
 // ---------------------------------------------------------------
 
+// .trim() alone only strips normal whitespace. A key pasted from a
+// rendered web page (e.g. a dashboard UI) can carry invisible Unicode
+// characters — zero-width space/joiner, a BOM, a non-breaking space —
+// that survive .trim() and don't render on screen, so the field looks
+// identical to the real key but sends a byte-for-byte different header
+// value than the same key copied from a terminal.
+function sanitizeAdminKey(value) {
+  return value.replace(/[​-‍﻿ ]/g, "").trim();
+}
+
 function signOut(message) {
   adminKey = null;
   identity = null;
@@ -378,17 +388,33 @@ function signOut(message) {
   document.getElementById("login-error").textContent = message || "";
 }
 
+// Returns { ok: true } on success, or { ok: false, detail } on failure —
+// `detail` describes WHY it failed (network/CORS failure vs. the
+// server's own rejection reason + HTTP status), since without this the
+// login screen can only ever show one fixed, uninformative string no
+// matter what actually went wrong, which is unworkable when DevTools/
+// the Network tab isn't available to see the real response.
 async function trySignIn(key) {
   adminKey = key;
-  const response = await fetch(API_BASE + "/admin/me", { headers: { "X-Admin-API-Key": key } });
+  let response;
+  try {
+    response = await fetch(API_BASE + "/admin/me", { headers: { "X-Admin-API-Key": key } });
+  } catch (e) {
+    adminKey = null;
+    return {
+      ok: false,
+      detail: `Could not reach the server at ${API_BASE} (${e.message}). This usually means a network problem or a CORS/blocked-request issue, not a wrong key.`,
+    };
+  }
   if (!response.ok) {
     adminKey = null;
-    return false;
+    const reason = await describeError(response, "(no further detail returned)");
+    return { ok: false, detail: `Sign-in rejected — HTTP ${response.status}: ${reason}` };
   }
   identity = await response.json();
   localStorage.setItem("adminApiKey", key);
   await enterApp();
-  return true;
+  return { ok: true };
 }
 
 async function enterApp() {
@@ -418,12 +444,12 @@ async function enterApp() {
 }
 
 document.getElementById("login-btn").onclick = async () => {
-  const key = document.getElementById("login-key").value.trim();
+  const key = sanitizeAdminKey(document.getElementById("login-key").value);
   if (!key) return;
   document.getElementById("login-error").textContent = "";
-  const ok = await trySignIn(key);
-  if (!ok) {
-    document.getElementById("login-error").textContent = "Invalid or inactive admin key.";
+  const result = await trySignIn(key);
+  if (!result.ok) {
+    document.getElementById("login-error").textContent = result.detail;
     document.getElementById("login-key").value = "";
   }
 };
@@ -1212,8 +1238,8 @@ async function revokeAccess(adminUserId) {
 (async function boot() {
   const savedKey = localStorage.getItem("adminApiKey");
   if (savedKey) {
-    const ok = await trySignIn(savedKey);
-    if (!ok) signOut("");
+    const result = await trySignIn(savedKey);
+    if (!result.ok) signOut("");
   }
 })();
 </script>

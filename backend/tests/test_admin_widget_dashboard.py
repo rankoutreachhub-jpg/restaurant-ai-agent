@@ -6,13 +6,14 @@ and a real browser driving a real page — here, admin.html itself
 rather than a synthetic host page, since this phase's surface is the
 dashboard, not the customer-facing widget.
 
-admin.html hardcodes `const API_BASE = "http://127.0.0.1:8000"` (the
-same convention frontend/index.html uses, documented in both files) —
-since the test API server binds to a random free port, this module
-serves a byte-identical COPY of the real file with only that one
-constant's value substituted, never touching frontend/admin.html
-itself. If that substitution ever fails to match (e.g. the constant's
-exact text changes), the fixture asserts loudly rather than silently
+admin.html hardcodes a `const API_BASE = "...";` line (the same
+convention frontend/index.html uses, documented in both files) — since
+the test API server binds to a random free port, this module serves a
+byte-identical COPY of the real file with only that one constant's
+value substituted (whatever it currently is — localhost for local dev,
+a deployed URL in production), never touching frontend/admin.html
+itself. If that substitution ever fails to match (e.g. the constant is
+renamed or removed), the fixture asserts loudly rather than silently
 testing a dashboard that can't reach the test server.
 
 No backend code changes were needed for Phase F (see the plan) — this
@@ -22,6 +23,7 @@ the real, unmodified admin endpoints.
 
 import functools
 import http.server
+import re
 import socket
 import threading
 import time
@@ -86,9 +88,12 @@ def admin_page_server(api_server, tmp_path_factory):
     """
     directory = tmp_path_factory.mktemp("admin_dashboard")
     original = ADMIN_HTML_PATH.read_text()
-    needle = 'const API_BASE = "http://127.0.0.1:8000";'
-    assert needle in original, "admin.html's API_BASE constant line has changed — update this test's patch"
-    patched = original.replace(needle, f'const API_BASE = "{api_server}";')
+    # Matches whatever URL API_BASE currently points at (localhost for
+    # local dev, a deployed URL in production) rather than requiring one
+    # exact hardcoded string — see the module docstring.
+    api_base_pattern = re.compile(r'const API_BASE = "[^"]*";')
+    assert api_base_pattern.search(original), "admin.html's API_BASE constant line has changed — update this test's patch"
+    patched = api_base_pattern.sub(f'const API_BASE = "{api_server}";', original, count=1)
     (directory / "admin.html").write_text(patched)
 
     port = 5500
