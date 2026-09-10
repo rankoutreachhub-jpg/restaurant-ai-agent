@@ -132,23 +132,16 @@ WIDGET_PREVIEW_ORIGIN = os.getenv("WIDGET_PREVIEW_ORIGIN", "").strip()
 
 # --- Booking confirmation email (Production Readiness: notifications) ---
 # All optional — like the WhatsApp block above, this is opt-in: leaving
-# SMTP_HOST/EMAIL_FROM unset simply means no confirmation email is ever
-# sent (see app/booking_notifications.py), the same "silently inert,
-# never a startup error" behaviour as an unconfigured WhatsApp number.
-# Booking creation itself never depends on this being configured.
-SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
-try:
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587") or "587")
-except ValueError:
-    SMTP_PORT = 587
-
-# Optional — many providers' SMTP relays require auth, some (e.g. a local
-# test relay) don't. Left blank, no auth is attempted.
-SMTP_USER = os.getenv("SMTP_USER", "").strip()
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+# RESEND_API_KEY/EMAIL_FROM unset simply means no confirmation email is
+# ever sent (see app/booking_notifications.py), the same "silently
+# inert, never a startup error" behaviour as an unconfigured WhatsApp
+# number. Booking creation itself never depends on this being
+# configured. Sent via Resend's HTTPS API (app/email_client.py) — no
+# SMTP credentials involved.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
 
 # The "From" address confirmation emails are sent as. Required (alongside
-# SMTP_HOST) for the feature to be considered configured — see
+# RESEND_API_KEY) for the feature to be considered configured — see
 # app/email_client.py's is_email_configured().
 EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip()
 

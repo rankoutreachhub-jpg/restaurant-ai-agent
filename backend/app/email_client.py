@@ -1,32 +1,23 @@
 """
-SMTP integration: sending a booking confirmation email.
+Resend integration: sending a booking confirmation email.
 
-This is the only place that talks to an SMTP server. It never decides
+This is the only place that talks to Resend's API. It never decides
 WHETHER to send or WHAT booking to send for — app/booking_notifications.py
 owns that decision (including the idempotency check) and supplies the
 already-decided booking details. Mirrors app/whatsapp_client.py's shape
 deliberately: a single send function, a typed exception carrying no
 message content or credentials, and logging limited to the operational
-fact of success/failure.
+fact of success/failure — the same pattern this module used for its
+previous SMTP transport, unchanged by this migration.
 
-Uses only the standard library (smtplib + email.message.EmailMessage) —
-no new dependency — so it works against any SMTP-capable provider (a
-managed relay or a real mail server) without being tied to one vendor's
-API.
-
-TLS is always mandatory, never optional or best-effort, but providers
-differ on which of the two standard TLS modes they expect, chosen by
-port — see IMPLICIT_TLS_PORT and send_booking_confirmation_email below:
-  - Implicit TLS/SMTPS (conventionally port 465): the connection is
-    TLS-wrapped from the first byte (smtplib.SMTP_SSL).
-  - STARTTLS (conventionally port 587, or 25 with STARTTLS support):
-    connect in plaintext, then upgrade with starttls() before anything
-    sensitive is sent (smtplib.SMTP).
+Uses httpx (already a dependency — see app/whatsapp_client.py, which
+calls Meta's Graph API the same way) to POST directly to Resend's REST
+API, rather than adding the `resend` package as a new dependency.
 """
 
 import logging
-import smtplib
-from email.message import EmailMessage
+
+import httpx
 
 from . import config
 
@@ -34,28 +25,22 @@ logger = logging.getLogger(__name__)
 
 SEND_TIMEOUT_SECONDS = 10.0
 
-# The conventional port for implicit TLS/SMTPS (the connection is
-# TLS-wrapped from the very first byte, via smtplib.SMTP_SSL). Any other
-# port is treated as STARTTLS (smtplib.SMTP, then upgraded with
-# starttls() before anything sensitive is sent) — see
-# send_booking_confirmation_email below. TLS is mandatory either way;
-# this only decides WHICH of the two TLS handshakes a given port needs.
-IMPLICIT_TLS_PORT = 465
+RESEND_API_URL = "https://api.resend.com/emails"
 
 
 class EmailSendError(Exception):
     """Raised when sending the confirmation email fails for any reason
-    (not configured, connection error, auth failure, SMTP error). Carries
-    no recipient address, message content, or credentials — see the
+    (not configured, network error, non-2xx response). Carries no
+    recipient address, message content, or credentials — see the
     logging call below for why."""
 
 
 def is_email_configured() -> bool:
-    """True once both SMTP_HOST and EMAIL_FROM are set — the minimum
-    needed to attempt a send. Checked by booking_notifications.py before
-    ever constructing a message, so an unconfigured deployment never
-    touches smtplib at all."""
-    return bool(config.SMTP_HOST and config.EMAIL_FROM)
+    """True once both RESEND_API_KEY and EMAIL_FROM are set — the
+    minimum needed to attempt a send. Checked by
+    booking_notifications.py before ever constructing a request, so an
+    unconfigured deployment never calls out to Resend at all."""
+    return bool(config.RESEND_API_KEY and config.EMAIL_FROM)
 
 
 def send_booking_confirmation_email(
@@ -68,10 +53,11 @@ def send_booking_confirmation_email(
     booking_id: int,
 ) -> None:
     """
-    Sends a plain-text booking confirmation email. Raises EmailSendError
-    on any failure, including "not configured" — callers must treat
-    failure as a hard stop for this attempt (app/booking_notifications.py
-    logs and moves on; it never lets this affect the booking itself).
+    Sends a plain-text booking confirmation email via Resend's HTTPS
+    API. Raises EmailSendError on any failure, including "not
+    configured" — callers must treat failure as a hard stop for this
+    attempt (app/booking_notifications.py logs and moves on; it never
+    lets this affect the booking itself).
 
     Never logs `to_email` (customer email address) or any message
     content — only the operational fact of success/failure, per this
@@ -81,11 +67,8 @@ def send_booking_confirmation_email(
     if not is_email_configured():
         raise EmailSendError("Email sending is not configured")
 
-    message = EmailMessage()
-    message["Subject"] = f"Booking confirmed at {restaurant_name}"
-    message["From"] = config.EMAIL_FROM
-    message["To"] = to_email
-    message.set_content(
+    subject = f"Booking confirmed at {restaurant_name}"
+    text = (
         f"Hi,\n\n"
         f"Your table booking at {restaurant_name} is confirmed:\n\n"
         f"  Date: {booking_date}\n"
@@ -97,29 +80,19 @@ def send_booking_confirmation_email(
         f"See you soon!\n"
     )
 
-    # Two supported TLS modes, chosen by port — both mandatory TLS, never
-    # a plaintext fallback:
-    #   - IMPLICIT_TLS_PORT (465, "SMTPS"): the socket is TLS-wrapped
-    #     before any SMTP command is sent, via SMTP_SSL. Calling
-    #     starttls() on a connection like this would fail (the server
-    #     already expects TLS, not a plaintext STARTTLS negotiation).
-    #   - any other port (587 conventionally, or 25 with STARTTLS
-    #     support): connect in plaintext, then unconditionally upgrade
-    #     with starttls() before login()/send_message() — if the server
-    #     can't upgrade, starttls() raises and nothing sensitive is ever
-    #     sent in the clear.
-    use_implicit_tls = config.SMTP_PORT == IMPLICIT_TLS_PORT
-    smtp_class = smtplib.SMTP_SSL if use_implicit_tls else smtplib.SMTP
+    headers = {"Authorization": f"Bearer {config.RESEND_API_KEY}"}
+    payload = {
+        "from": config.EMAIL_FROM,
+        "to": [to_email],
+        "subject": subject,
+        "text": text,
+    }
 
     try:
-        with smtp_class(config.SMTP_HOST, config.SMTP_PORT, timeout=SEND_TIMEOUT_SECONDS) as smtp:
-            if not use_implicit_tls:
-                smtp.starttls()
-            if config.SMTP_USER:
-                smtp.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            smtp.send_message(message)
-    except (smtplib.SMTPException, OSError):
+        response = httpx.post(RESEND_API_URL, headers=headers, json=payload, timeout=SEND_TIMEOUT_SECONDS)
+        response.raise_for_status()
+    except httpx.HTTPError:
         logger.warning("Booking confirmation email send failed (booking_id=%s)", booking_id)
-        raise EmailSendError("SMTP send failed") from None
+        raise EmailSendError("Resend API call failed") from None
 
     logger.info("Booking confirmation email sent (booking_id=%s)", booking_id)

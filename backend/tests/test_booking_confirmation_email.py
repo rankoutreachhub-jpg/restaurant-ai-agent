@@ -5,9 +5,10 @@ regression test in tests/test_whatsapp_booking.py).
 
 Most tests here stub app/email_client.py's send function directly (the
 same pattern tests/test_whatsapp_booking.py uses for whatsapp_client's
-send function) rather than exercising real SMTP — the one exception is
-test_email_client_send_uses_smtp_and_does_not_log_pii_or_credentials,
-which stubs smtplib.SMTP itself to verify the real send path end to end.
+send function) rather than exercising a real Resend API call — the one
+exception is
+test_email_client_send_calls_resend_api_and_does_not_log_pii_or_credentials,
+which stubs httpx.post itself to verify the real send path end to end.
 
 TestClient runs FastAPI's BackgroundTasks synchronously before
 client.post(...) returns, so DB state can be asserted immediately
@@ -21,9 +22,10 @@ never share a date.
 """
 
 import itertools
-import smtplib
 from datetime import date, timedelta
 from types import SimpleNamespace
+
+import httpx
 
 from app import config, email_client, models
 from app import llm as llm_module
@@ -53,7 +55,7 @@ def _booking_payload(**overrides):
 
 
 def _configure_email(monkeypatch):
-    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_test_0000000000000000000000")
     monkeypatch.setattr(config, "EMAIL_FROM", "bookings@example.test")
 
 
@@ -192,11 +194,11 @@ def test_unexpected_exception_in_notification_task_does_not_propagate(client, mo
 
 def test_booking_succeeds_when_email_not_configured(client, monkeypatch, db, admin_headers):
     # Deliberately NOT calling _configure_email — the default test env
-    # (see conftest.py) never sets SMTP_HOST/EMAIL_FROM either.
-    def smtp_should_never_be_constructed(*args, **kwargs):
-        raise AssertionError("smtplib.SMTP must never be constructed when email is not configured")
+    # (see conftest.py) never sets RESEND_API_KEY/EMAIL_FROM either.
+    def post_should_never_be_called(*args, **kwargs):
+        raise AssertionError("httpx.post must never be called when email is not configured")
 
-    monkeypatch.setattr(smtplib, "SMTP", smtp_should_never_be_constructed)
+    monkeypatch.setattr(email_client.httpx, "post", post_should_never_be_called)
 
     response = client.post(
         "/admin/restaurant/1/bookings", json=_booking_payload(), headers=admin_headers
@@ -212,19 +214,19 @@ def test_booking_succeeds_when_email_not_configured(client, monkeypatch, db, adm
 
 
 def test_is_email_configured_reflects_both_required_settings(monkeypatch):
-    monkeypatch.setattr(config, "SMTP_HOST", "")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "")
     monkeypatch.setattr(config, "EMAIL_FROM", "")
     assert email_client.is_email_configured() is False
 
-    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_test_0000000000000000000000")
     monkeypatch.setattr(config, "EMAIL_FROM", "")
     assert email_client.is_email_configured() is False
 
-    monkeypatch.setattr(config, "SMTP_HOST", "")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "")
     monkeypatch.setattr(config, "EMAIL_FROM", "bookings@example.test")
     assert email_client.is_email_configured() is False
 
-    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_test_0000000000000000000000")
     monkeypatch.setattr(config, "EMAIL_FROM", "bookings@example.test")
     assert email_client.is_email_configured() is True
 
@@ -308,59 +310,34 @@ def test_confirmation_email_flow_does_not_log_pii(client, monkeypatch, admin_hea
     assert "01234 000111" not in content
 
 
-class _FakeSMTP:
-    """Records what would have been sent, without any real network
-    activity — mirrors the shape of smtplib.SMTP/smtplib.SMTP_SSL that
-    email_client.py actually calls (context manager, starttls, login,
-    send_message). Used as a stand-in for BOTH classes across the two
-    tests below — each test monkeypatches only the one it expects
-    email_client.py to use, and separately asserts the OTHER class is
-    never constructed, so a regression that picks the wrong TLS mode for
-    a given port fails loudly rather than silently passing either way."""
+def _fake_post_ok(monkeypatch):
+    """Records what would have been sent to Resend, without any real
+    network activity — returns a genuine httpx.Response(200, ...) so
+    response.raise_for_status() inside email_client.py behaves exactly
+    as it would for a real successful Resend call."""
+    calls = []
 
-    instances = []
+    def fake_post(url, *, headers, json, timeout):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return httpx.Response(200, request=httpx.Request("POST", url))
 
-    def __init__(self, host, port, timeout=None):
-        self.host = host
-        self.port = port
-        self.started_tls = False
-        self.login_calls = []
-        self.sent_messages = []
-        _FakeSMTP.instances.append(self)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def starttls(self):
-        self.started_tls = True
-
-    def login(self, user, password):
-        self.login_calls.append((user, password))
-
-    def send_message(self, message):
-        self.sent_messages.append(message)
+    monkeypatch.setattr(email_client.httpx, "post", fake_post)
+    return calls
 
 
-def _unexpected_smtp_class(name):
-    def _raise(*args, **kwargs):
-        raise AssertionError(f"smtplib.{name} must not be constructed for this test's SMTP_PORT")
+def _fake_post_fails(monkeypatch, status_code=422):
+    def fake_post(url, *, headers, json, timeout):
+        return httpx.Response(status_code, request=httpx.Request("POST", url))
 
-    return _raise
+    monkeypatch.setattr(email_client.httpx, "post", fake_post)
 
 
-def test_email_client_send_uses_starttls_on_587_and_does_not_log_pii_or_credentials(monkeypatch):
+def test_email_client_send_calls_resend_api_and_does_not_log_pii_or_credentials(monkeypatch):
     from app.logging_config import LOG_FILE
 
-    _FakeSMTP.instances.clear()
-    monkeypatch.setattr(smtplib, "SMTP", _FakeSMTP)
-    monkeypatch.setattr(smtplib, "SMTP_SSL", _unexpected_smtp_class("SMTP_SSL"))
     _configure_email(monkeypatch)
-    monkeypatch.setattr(config, "SMTP_PORT", 587)
-    monkeypatch.setattr(config, "SMTP_USER", "smtp-user-for-test")
-    monkeypatch.setattr(config, "SMTP_PASSWORD", "super-secret-smtp-password")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_super_secret_test_key_0000000")
+    calls = _fake_post_ok(monkeypatch)
 
     email_client.send_booking_confirmation_email(
         to_email="realsend-test@example.com",
@@ -371,62 +348,45 @@ def test_email_client_send_uses_starttls_on_587_and_does_not_log_pii_or_credenti
         booking_id=999999,
     )
 
-    assert len(_FakeSMTP.instances) == 1
-    fake = _FakeSMTP.instances[0]
-    assert fake.port == 587
-    # STARTTLS mode: connects in plaintext, then upgrades — starttls()
-    # must actually be called, never skipped.
-    assert fake.started_tls is True
-    assert fake.login_calls == [("smtp-user-for-test", "super-secret-smtp-password")]
-    assert len(fake.sent_messages) == 1
-    assert fake.sent_messages[0]["To"] == "realsend-test@example.com"
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["url"] == email_client.RESEND_API_URL
+    assert call["headers"]["Authorization"] == "Bearer re_super_secret_test_key_0000000"
+    assert call["json"]["to"] == ["realsend-test@example.com"]
+    assert call["json"]["from"] == "bookings@example.test"
+    assert "The Kings Arms" in call["json"]["subject"]
+    assert "999999" in call["json"]["text"]
 
     content = LOG_FILE.read_text(encoding="utf-8")
     assert "realsend-test@example.com" not in content
-    assert "super-secret-smtp-password" not in content
-    assert "smtp-user-for-test" not in content
+    assert "re_super_secret_test_key_0000000" not in content
 
 
-def test_email_client_send_uses_implicit_tls_on_465_and_does_not_log_pii_or_credentials(monkeypatch):
+def test_email_client_raises_on_non_2xx_resend_response(monkeypatch):
     from app.logging_config import LOG_FILE
 
-    _FakeSMTP.instances.clear()
-    monkeypatch.setattr(smtplib, "SMTP_SSL", _FakeSMTP)
-    monkeypatch.setattr(smtplib, "SMTP", _unexpected_smtp_class("SMTP"))
     _configure_email(monkeypatch)
-    monkeypatch.setattr(config, "SMTP_PORT", email_client.IMPLICIT_TLS_PORT)
-    monkeypatch.setattr(config, "SMTP_USER", "smtp-user-for-test")
-    monkeypatch.setattr(config, "SMTP_PASSWORD", "super-secret-smtp-password")
+    _fake_post_fails(monkeypatch, status_code=422)
 
-    email_client.send_booking_confirmation_email(
-        to_email="realsend-test-465@example.com",
-        restaurant_name="The Kings Arms",
-        booking_date="2027-01-01",
-        booking_time="13:00",
-        party_size=2,
-        booking_id=999998,
-    )
-
-    assert len(_FakeSMTP.instances) == 1
-    fake = _FakeSMTP.instances[0]
-    assert fake.port == 465
-    # Implicit TLS mode: the socket is already TLS-wrapped by SMTP_SSL —
-    # calling starttls() on top of that would be wrong, so it must never
-    # be called (smtplib.SMTP itself is also asserted never constructed,
-    # via the monkeypatched raiser above).
-    assert fake.started_tls is False
-    assert fake.login_calls == [("smtp-user-for-test", "super-secret-smtp-password")]
-    assert len(fake.sent_messages) == 1
-    assert fake.sent_messages[0]["To"] == "realsend-test-465@example.com"
+    try:
+        email_client.send_booking_confirmation_email(
+            to_email="rejected-by-resend@example.com",
+            restaurant_name="The Kings Arms",
+            booking_date="2027-01-01",
+            booking_time="13:00",
+            party_size=2,
+            booking_id=999997,
+        )
+        assert False, "expected EmailSendError"
+    except email_client.EmailSendError:
+        pass
 
     content = LOG_FILE.read_text(encoding="utf-8")
-    assert "realsend-test-465@example.com" not in content
-    assert "super-secret-smtp-password" not in content
-    assert "smtp-user-for-test" not in content
+    assert "rejected-by-resend@example.com" not in content
 
 
 def test_email_client_raises_when_not_configured(monkeypatch):
-    monkeypatch.setattr(config, "SMTP_HOST", "")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "")
     monkeypatch.setattr(config, "EMAIL_FROM", "")
 
     try:

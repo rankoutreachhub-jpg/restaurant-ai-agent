@@ -256,7 +256,7 @@ def test_whatsapp_booking_never_triggers_a_confirmation_email(client, monkeypatc
     fail this test immediately."""
     from app import config, email_client
 
-    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_test_0000000000000000000000")
     monkeypatch.setattr(config, "EMAIL_FROM", "bookings@example.test")
     email_calls = []
     monkeypatch.setattr(email_client, "send_booking_confirmation_email", lambda **k: email_calls.append(k))
