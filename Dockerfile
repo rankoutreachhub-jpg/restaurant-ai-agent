@@ -46,10 +46,6 @@ USER appuser
 
 EXPOSE 8000
 
-# Pure-Python health check — no curl/wget needed in the slim image.
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
-
 # Applies pending migrations before every start — the single schema-
 # management path for every environment (see app/main.py and README.md,
 # "Database migrations"). If a migration fails, the container fails to
