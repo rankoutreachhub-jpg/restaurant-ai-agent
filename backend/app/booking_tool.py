@@ -29,7 +29,12 @@ def summarize_validation_error(error: ValidationError) -> str:
     return "Invalid booking details — " + "; ".join(parts)
 
 
-def make_booking_tool_handler(db: Session, restaurant: models.Restaurant, tool_call_flag: list):
+def make_booking_tool_handler(
+    db: Session,
+    restaurant: models.Restaurant,
+    tool_call_flag: list,
+    confirmed_booking_ids: list = None,
+):
     """
     Builds the callback passed to llm.generate_reply(). Never raises —
     always returns a JSON-serialisable dict describing what happened,
@@ -42,6 +47,15 @@ def make_booking_tool_handler(db: Session, restaurant: models.Restaurant, tool_c
     appending to it when this handler actually runs is how the caller
     learns "a tool call happened" without llm.py needing to say so
     itself (its return shape stays exactly what it always was).
+
+    confirmed_booking_ids is the same idiom, optional and defaulted to
+    None: when a caller passes a list, a successfully confirmed
+    booking's id is appended to it, which is how routers/chat.py learns
+    which booking(s) to schedule a confirmation email for (see
+    app/booking_notifications.py) without this module needing to know
+    anything about email. Left as None at the WhatsApp call site
+    (app/whatsapp_processing.py) — deliberately unchanged, so WhatsApp's
+    behaviour is byte-for-byte what it was before this parameter existed.
     """
 
     def handle(args: dict) -> dict:
@@ -55,6 +69,9 @@ def make_booking_tool_handler(db: Session, restaurant: models.Restaurant, tool_c
             booking = create_booking(db, restaurant, data)
         except BookingConflictError as e:
             return {"status": "rejected", "reason": str(e)}
+
+        if confirmed_booking_ids is not None:
+            confirmed_booking_ids.append(booking.id)
 
         return {
             "status": "confirmed",

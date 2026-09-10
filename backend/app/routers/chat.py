@@ -35,10 +35,11 @@ not by changing llm.py's interface.
 
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from .. import conversations, models, schemas, knowledge, llm
+from ..booking_notifications import send_confirmation_email_task
 from ..booking_tool import make_booking_tool_handler
 from ..database import get_db
 from ..rate_limit import chat_rate_limiter
@@ -53,7 +54,12 @@ router = APIRouter(
 
 
 @router.post("", response_model=schemas.ChatResponse)
-def chat(request: schemas.ChatRequest, response: Response, db: Session = Depends(get_db)):
+def chat(
+    request: schemas.ChatRequest,
+    response: Response,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     try:
         restaurant = (
             db.query(models.Restaurant)
@@ -81,11 +87,14 @@ def chat(request: schemas.ChatRequest, response: Response, db: Session = Depends
         restaurant_context = knowledge.build_restaurant_context(db, request.restaurant_id)
 
         tool_call_flag: list = []
+        confirmed_booking_ids: list = []
         reply = llm.generate_reply(
             user_message=request.message,
             history=history,
             restaurant_context=restaurant_context,
-            book_tool_handler=make_booking_tool_handler(db, restaurant, tool_call_flag),
+            book_tool_handler=make_booking_tool_handler(
+                db, restaurant, tool_call_flag, confirmed_booking_ids
+            ),
         )
 
         # Only reached once a reply genuinely exists — never on any
@@ -103,6 +112,13 @@ def chat(request: schemas.ChatRequest, response: Response, db: Session = Depends
             triggered_tool_call=bool(tool_call_flag),
         )
         response.headers["X-Conversation-Token"] = conversation.public_token
+
+        # Scheduled only here, on the success path — after the booking
+        # (if any) has already committed AND the turn has already been
+        # persisted — so a later email failure can never affect this
+        # response or the booking itself. See app/booking_notifications.py.
+        for booking_id in confirmed_booking_ids:
+            background_tasks.add_task(send_confirmation_email_task, booking_id)
 
         return schemas.ChatResponse(reply=reply)
 

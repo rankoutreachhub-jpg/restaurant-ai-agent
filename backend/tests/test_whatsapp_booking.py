@@ -242,3 +242,42 @@ def test_booking_succeeds_but_send_failure_leaves_booking_and_does_not_persist_t
         db.query(models.Message).filter(models.Message.external_message_id == "wamid.booksend.fail").first()
         is None
     )
+
+
+def test_whatsapp_booking_never_triggers_a_confirmation_email(client, monkeypatch, db, whatsapp_number):
+    """Regression test for Booking Confirmation Email v1 (email only,
+    scoped to web chat + admin-created bookings): make_booking_tool_handler
+    gained an optional confirmed_booking_ids parameter that WhatsApp's
+    call site (app/whatsapp_processing.py) deliberately does not pass,
+    so it should be impossible for a WhatsApp-originated booking to ever
+    schedule or send a confirmation email. Asserted positively here
+    (the send function must never be called) rather than just relying on
+    the absence of a call site, so a future accidental wiring-up would
+    fail this test immediately."""
+    from app import config, email_client
+
+    monkeypatch.setattr(config, "SMTP_HOST", "smtp.example.test")
+    monkeypatch.setattr(config, "EMAIL_FROM", "bookings@example.test")
+    email_calls = []
+    monkeypatch.setattr(email_client, "send_booking_confirmation_email", lambda **k: email_calls.append(k))
+
+    phone_number_id = whatsapp_number(1)
+    d = _fresh_date()
+    args = {
+        "customer_name": "No Email Expected Customer",
+        "phone": "07911 555005",
+        "email": "no-email-expected@example.com",
+        "booking_date": d.isoformat(),
+        "booking_time": _SAFE_TIME,
+        "party_size": 2,
+    }
+    _stub_tool_round_trip(monkeypatch, args, "Booked!")
+    _stub_send_ok(monkeypatch)
+
+    process_incoming_message(phone_number_id, _text_message("wamid.no.email", "447911200006", "Book me a table"))
+
+    db.expire_all()
+    booking = db.query(models.Booking).filter(models.Booking.customer_name == "No Email Expected Customer").one()
+    assert booking.status == "confirmed"
+    assert booking.confirmation_sent_at is None
+    assert email_calls == []

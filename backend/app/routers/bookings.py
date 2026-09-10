@@ -12,13 +12,14 @@ for why those are declared per-handler rather than at router level.
 from datetime import date
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..auth import AdminIdentity, get_current_admin
 from ..authz import require_restaurant_access
 from ..booking import BookingConflictError, create_booking, update_booking
+from ..booking_notifications import send_confirmation_email_task
 from ..database import get_db
 from ..rate_limit import admin_rate_limiter
 
@@ -75,14 +76,22 @@ def list_bookings(
 def create_booking_endpoint(
     restaurant_id: int,
     data: schemas.BookingCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_admin: AdminIdentity = Depends(get_current_admin),
 ):
     restaurant = require_restaurant_access(restaurant_id, db, current_admin)
     try:
-        return create_booking(db, restaurant, data)
+        booking = create_booking(db, restaurant, data)
     except BookingConflictError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    # Scheduled only once the booking has already committed successfully
+    # (create_booking() above already returned) — a later email failure
+    # can never affect this response or the booking itself, since the
+    # task runs after this handler has already returned it.
+    background_tasks.add_task(send_confirmation_email_task, booking.id)
+    return booking
 
 
 # =========================================================

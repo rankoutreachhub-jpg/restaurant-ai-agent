@@ -95,6 +95,11 @@ class Booking(Base):
     status = Column(String, nullable=False, default="confirmed")  # "confirmed" | "cancelled"
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # Set once the booking-confirmation email has actually been sent
+    # (see app/booking_notifications.py) — NULL means "not sent yet",
+    # which is also the correct meaning for every pre-existing row.
+    # Doubles as the idempotency guard preventing a duplicate send.
+    confirmation_sent_at = Column(DateTime, nullable=True)
 
     restaurant = relationship("Restaurant", back_populates="bookings")
 

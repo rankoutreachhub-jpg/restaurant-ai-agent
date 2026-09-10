@@ -130,6 +130,28 @@ WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 # add it. Optional — leave unset until it's actually needed.
 WIDGET_PREVIEW_ORIGIN = os.getenv("WIDGET_PREVIEW_ORIGIN", "").strip()
 
+# --- Booking confirmation email (Production Readiness: notifications) ---
+# All optional — like the WhatsApp block above, this is opt-in: leaving
+# SMTP_HOST/EMAIL_FROM unset simply means no confirmation email is ever
+# sent (see app/booking_notifications.py), the same "silently inert,
+# never a startup error" behaviour as an unconfigured WhatsApp number.
+# Booking creation itself never depends on this being configured.
+SMTP_HOST = os.getenv("SMTP_HOST", "").strip()
+try:
+    SMTP_PORT = int(os.getenv("SMTP_PORT", "587") or "587")
+except ValueError:
+    SMTP_PORT = 587
+
+# Optional — many providers' SMTP relays require auth, some (e.g. a local
+# test relay) don't. Left blank, no auth is attempted.
+SMTP_USER = os.getenv("SMTP_USER", "").strip()
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip()
+
+# The "From" address confirmation emails are sent as. Required (alongside
+# SMTP_HOST) for the feature to be considered configured — see
+# app/email_client.py's is_email_configured().
+EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip()
+
 # --- Error tracking (Sentry) ---
 # Fully optional and off by default: leaving SENTRY_DSN unset means
 # app/monitoring.py never calls sentry_sdk.init() at all, so nothing is
