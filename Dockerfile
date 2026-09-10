@@ -46,12 +46,20 @@ USER appuser
 
 EXPOSE 8000
 
+# Default port for local dev/docker-compose/CI (none of which set PORT).
+# Railway (and other PaaS platforms that follow the same convention)
+# inject their own PORT at container runtime, which overrides this
+# default automatically — nothing else needs to change per-environment.
+ENV PORT=8000
+
 # Pure-Python health check — no curl/wget needed in the slim image.
+# Reads PORT from the environment so this always probes whichever port
+# Uvicorn actually bound to below, in every environment.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+    CMD ["python", "-c", "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:' + os.environ.get('PORT', '8000') + '/health', timeout=2)"]
 
 # Applies pending migrations before every start — the single schema-
 # management path for every environment (see app/main.py and README.md,
 # "Database migrations"). If a migration fails, the container fails to
 # start rather than serving traffic against a stale/broken schema.
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"]
