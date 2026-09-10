@@ -14,6 +14,8 @@ route returns 200).
 
 from types import SimpleNamespace
 
+import pytest
+
 from app import config
 from app import llm as llm_module
 
@@ -377,3 +379,48 @@ def test_widget_preview_origin_carve_out_is_inert_when_unset(client, admin_heade
         headers={"Origin": "https://some-random-origin.example.com"},
     )
     assert response.status_code == 403
+
+
+# --- CVE-2026-48710 ("BadHost") regression ---
+#
+# Pre-fix Starlette (<1.0.1) reconstructed request.url by concatenating
+# the raw, unvalidated Host header with the request path. A Host value
+# containing "/", "?", or "#" could desync request.url.path (what
+# middleware sees) from the real routed path (what the ASGI server
+# actually dispatched on) — letting a request that's really hitting
+# /widget/{key}/... appear, to path-string-based middleware like
+# widget_cors_middleware's _extract_widget_key(), as if it weren't a
+# /widget/* request at all. That would mean this middleware's whole
+# CORS decision (see app/widget_cors.py) gets silently skipped, falling
+# through to the global CORSMiddleware's own (unrelated, wider)
+# ALLOWED_ORIGINS instead — defeating the per-restaurant origin
+# isolation this middleware exists to enforce.
+#
+# This asserts the concrete, observable symptom: a disallowed-origin
+# request to a real /widget/*/config endpoint must still fail closed
+# (403, no CORS header) even when the Host header is deliberately
+# poisoned with a path-shifting character. Requires Starlette >=1.0.1
+# (see requirements.txt) — this is a regression test, not something
+# app/widget_cors.py's own code changed to satisfy.
+
+_MALFORMED_HOSTS = [
+    "testserver/../admin/restaurant/1",
+    "testserver?x=/admin",
+    "testserver#/admin",
+    "evil.com",
+]
+
+
+@pytest.mark.parametrize("malformed_host", _MALFORMED_HOSTS)
+def test_malformed_host_header_does_not_bypass_widget_cors(
+    client, admin_headers, malformed_host
+):
+    created = _create_widget_config(client, admin_headers, 1)
+
+    response = client.get(
+        _config_url(created["widget_key"]),
+        headers={"Origin": DISALLOWED_ORIGIN, "Host": malformed_host},
+    )
+
+    assert response.status_code == 403
+    assert "access-control-allow-origin" not in response.headers
