@@ -349,3 +349,77 @@ class WidgetAllowedOrigin(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     widget_config = relationship("WidgetConfig", back_populates="allowed_origins")
+
+
+class Subscription(Base):
+    """
+    Jantar SaaS Phase 1 (billing, schema only — see app/plans.py for the
+    plan catalog this references and this migration's docstring for the
+    backfill). One row per restaurant (Restaurant is the v1 billing
+    anchor — no separate Account/Organization layer; see that migration
+    for the full rationale), the same "one row per tenant" shape already
+    used by WhatsAppNumber and WidgetConfig above.
+
+    Nothing in the application reads or enforces any field on this table
+    yet: no endpoint, no admin UI, no usage limiting. It exists purely so
+    every restaurant has a real, backfilled subscription row before any
+    of that is added in a later phase — onboarding a brand-new restaurant
+    does not yet create one automatically (see routers/platform_admin.py:
+    create_restaurant), which is a deliberate, separately-tracked gap for
+    that later phase, not an oversight here.
+
+    billing_provider is the provider-agnostic seam: it is nullable
+    (meaning "no payment provider wired yet, manually managed") so that
+    every other field and every future caller of this table works
+    identically regardless of which provider (if any) is eventually
+    plugged in behind it — nothing outside a future billing-integration
+    module should ever need to branch on billing_provider's value.
+
+    status mirrors typical payment-provider webhook vocabulary
+    ("trialing"/"active"/"past_due"/"canceled") deliberately, to minimise
+    translation logic once a real provider's webhooks exist — enforced at
+    the application layer only, exactly like Booking.status and
+    Conversation.channel, not a DB CHECK constraint, so a new allowed
+    value never needs a migration.
+    """
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, unique=True, index=True)
+    plan_code = Column(String, nullable=False, default="starter")
+    status = Column(String, nullable=False, default="active")
+    billing_provider = Column(String, nullable=True)
+    provider_customer_id = Column(String, nullable=True, index=True)
+    provider_subscription_id = Column(String, nullable=True, index=True)
+    current_period_end = Column(DateTime, nullable=True)
+    cancel_at_period_end = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    restaurant = relationship("Restaurant")
+
+
+class SubscriptionEvent(Base):
+    """
+    Append-only audit trail for subscription changes (Jantar SaaS Phase
+    1), the same write-once shape as Message above. Nothing writes to
+    this table yet — it exists now so the schema is in place before a
+    later phase's manual plan-management endpoints and, eventually, a
+    payment provider's webhook handler both have one obvious place to
+    record what happened, without needing another migration to add it.
+
+    payload is free-form (nullable Text) rather than a typed column set,
+    since its shape will vary by event_type and, once a real provider is
+    wired, needs to hold that provider's own raw webhook body for
+    support/debugging — not parsed or trusted here, just retained.
+    """
+    __tablename__ = "subscription_events"
+    __table_args__ = (Index("ix_subscription_events_restaurant_id_created_at", "restaurant_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
+    event_type = Column(String, nullable=False)
+    payload = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant = relationship("Restaurant")
