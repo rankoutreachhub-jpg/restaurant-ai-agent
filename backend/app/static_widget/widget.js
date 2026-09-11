@@ -80,6 +80,12 @@
 
   var DEFAULT_ACCENT = "#2563eb";
 
+  // Platform-wide Privacy Policy link shown in every widget instance,
+  // regardless of restaurant (there is no per-restaurant policy URL in
+  // this version — see frontend/privacy-policy.html), hosted at its
+  // actual public location.
+  var PRIVACY_POLICY_URL = "https://restaurant-ai-agent-eight.vercel.app/privacy-policy.html";
+
   var LAUNCHER_ICON_SVG =
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
     '<path fill="currentColor" d="M12 3C6.5 3 2 6.6 2 11c0 2.4 1.3 4.6 3.4 6.1-.1.9-.5 2.2-1.4 3.4 1.7-.1 3.3-.7 4.5-1.5.8.2 1.6.3 2.5.3 5.5 0 10-3.6 10-8s-4.5-8-10-8z"/>' +
@@ -124,6 +130,9 @@
     DEFAULT_ACCENT +
     ");color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:14px;cursor:pointer;flex-shrink:0;}" +
     ".raiw-send:disabled,.raiw-input:disabled{opacity:0.6;cursor:not-allowed;}" +
+    ".raiw-footer{flex-shrink:0;padding:6px 14px 10px;text-align:center;}" +
+    ".raiw-footer-link{font-size:11px;color:#888;text-decoration:none;}" +
+    ".raiw-footer-link:hover,.raiw-footer-link:focus-visible{text-decoration:underline;}" +
     "@media (max-width:480px){.raiw-panel{width:calc(100vw - 24px);height:calc(100vh - 100px);right:12px;bottom:80px;}.raiw-launcher{right:16px;bottom:16px;}}";
 
   function isValidHexColor(v) {
@@ -311,6 +320,22 @@
     sendEl.className = "raiw-send";
     sendEl.textContent = "Send";
     inputWrap.appendChild(sendEl);
+
+    // Small, unobtrusive Privacy Policy link — included in the existing
+    // focus-trap's own element query (trapFocus below) via tabindex="0",
+    // so keyboard Tab-cycling within the panel continues to work
+    // correctly without any change to that logic.
+    var footerEl = document.createElement("div");
+    footerEl.className = "raiw-footer";
+    var privacyLinkEl = document.createElement("a");
+    privacyLinkEl.className = "raiw-footer-link";
+    privacyLinkEl.href = PRIVACY_POLICY_URL;
+    privacyLinkEl.target = "_blank";
+    privacyLinkEl.rel = "noopener noreferrer";
+    privacyLinkEl.tabIndex = 0;
+    privacyLinkEl.textContent = "Privacy Policy";
+    footerEl.appendChild(privacyLinkEl);
+    panelEl.appendChild(footerEl);
 
     document.body.appendChild(container);
 
