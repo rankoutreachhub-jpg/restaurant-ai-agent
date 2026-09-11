@@ -15,6 +15,7 @@ import logging
 
 from sqlalchemy.orm import Session
 from . import models
+from .subscriptions import create_subscription_for_restaurant
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,12 @@ def seed_if_empty(db: Session):
     db.add(restaurant)
     db.commit()
     db.refresh(restaurant)
+
+    # Jantar SaaS Phase 2: every restaurant must have exactly one
+    # Subscription row (Phase 1's documented gap for restaurants
+    # created after that migration ran) -- the seeded demo restaurant
+    # is no exception.
+    create_subscription_for_restaurant(db, restaurant)
 
     # --- Opening hours ---
     hours_data = [

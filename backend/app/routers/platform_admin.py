@@ -26,6 +26,7 @@ from ..admin_keys import generate_key
 from ..auth import AdminIdentity, require_superadmin
 from ..database import get_db
 from ..rate_limit import admin_rate_limiter
+from ..subscriptions import create_subscription_for_restaurant
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +83,15 @@ def create_restaurant(data: schemas.RestaurantCreate, db: Session = Depends(get_
         seating_capacity=data.seating_capacity,
     )
     db.add(restaurant)
+    db.flush()  # assign restaurant.id without committing yet
+
+    # Jantar SaaS Phase 2: every restaurant must have exactly one
+    # Subscription row (Phase 1's documented gap for restaurants
+    # created after that migration ran) — created here, in the same
+    # transaction as the restaurant itself, so either both are
+    # committed together or neither is.
+    create_subscription_for_restaurant(db, restaurant, commit=False)
+
     db.commit()
     db.refresh(restaurant)
 
@@ -107,9 +117,39 @@ def create_restaurant(data: schemas.RestaurantCreate, db: Session = Depends(get_
 # restaurant switcher/onboarding screen for a superadmin)
 # =========================================================
 
-@router.get("/restaurants", response_model=list[schemas.RestaurantOut])
+@router.get("/restaurants", response_model=list[schemas.RestaurantWithSubscriptionOut])
 def list_restaurants(db: Session = Depends(get_db)):
-    return db.query(models.Restaurant).order_by(models.Restaurant.id).all()
+    restaurants = db.query(models.Restaurant).order_by(models.Restaurant.id).all()
+
+    # Additive fields only (Jantar SaaS Phase 2) — looked up separately
+    # rather than via a Restaurant.subscription relationship, so
+    # models.Restaurant itself needs no change. A restaurant with no
+    # subscription row (not expected after Phase 2, see
+    # create_restaurant above, but possible for one onboarded in the
+    # gap between the Phase 1 migration and this deploy) degrades to
+    # null fields rather than a 500.
+    subscriptions_by_restaurant_id = {
+        s.restaurant_id: s
+        for s in db.query(models.Subscription)
+        .filter(models.Subscription.restaurant_id.in_([r.id for r in restaurants]))
+        .all()
+    }
+
+    return [
+        schemas.RestaurantWithSubscriptionOut(
+            id=r.id,
+            name=r.name,
+            address=r.address,
+            phone=r.phone,
+            email=r.email,
+            map_link=r.map_link,
+            parking_notes=r.parking_notes,
+            seating_capacity=r.seating_capacity,
+            plan_code=(subscriptions_by_restaurant_id[r.id].plan_code if r.id in subscriptions_by_restaurant_id else None),
+            subscription_status=(subscriptions_by_restaurant_id[r.id].status if r.id in subscriptions_by_restaurant_id else None),
+        )
+        for r in restaurants
+    ]
 
 
 # =========================================================
@@ -338,3 +378,63 @@ def revoke_restaurant_access(admin_user_id: int, restaurant_id: int, db: Session
         )
 
     return _admin_user_out(admin_user)
+
+
+# =========================================================
+# SUBSCRIPTION MANAGEMENT (Jantar SaaS Phase 2 — manual only; no
+# payment provider, checkout, or enforcement yet — see app/plans.py
+# and app/models.py:Subscription)
+# =========================================================
+
+def _get_subscription_or_404(db: Session, restaurant_id: int) -> models.Subscription:
+    subscription = (
+        db.query(models.Subscription)
+        .filter(models.Subscription.restaurant_id == restaurant_id)
+        .first()
+    )
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No subscription exists for this restaurant yet")
+    return subscription
+
+
+@router.get(
+    "/restaurants/{restaurant_id}/subscription",
+    response_model=schemas.SubscriptionAdminOut,
+)
+def get_restaurant_subscription_as_superadmin(restaurant_id: int, db: Session = Depends(get_db)):
+    _get_restaurant_or_404(db, restaurant_id)
+    return _get_subscription_or_404(db, restaurant_id)
+
+
+@router.patch(
+    "/restaurants/{restaurant_id}/subscription",
+    response_model=schemas.SubscriptionAdminOut,
+)
+def update_restaurant_subscription(
+    restaurant_id: int, data: schemas.SubscriptionAdminUpdate, db: Session = Depends(get_db)
+):
+    """
+    Manual plan/status changes only, for as long as no payment provider
+    is wired — plan_code and status are the only fields exposed here
+    (validated against the fixed set of plans/lifecycle states by
+    schemas.SubscriptionAdminUpdate's own typing). Provider-linked
+    fields (billing_provider, provider_customer_id,
+    provider_subscription_id, current_period_end) are deliberately not
+    editable through this endpoint; those are for a future billing
+    integration to set from real provider data, not for manual entry.
+    """
+    _get_restaurant_or_404(db, restaurant_id)
+    subscription = _get_subscription_or_404(db, restaurant_id)
+
+    updates = data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(subscription, field, value)
+
+    db.commit()
+    db.refresh(subscription)
+
+    logger.info(
+        "Subscription updated (restaurant_id=%s plan_code=%s status=%s)",
+        restaurant_id, subscription.plan_code, subscription.status,
+    )
+    return subscription

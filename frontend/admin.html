@@ -302,6 +302,7 @@
     <button data-tab="bookings">Bookings</button>
     <button data-tab="conversations">Conversations</button>
     <button data-tab="widget">Widget</button>
+    <button data-tab="subscription">Subscription</button>
     <button data-tab="platform" id="platform-tab-btn" hidden>Platform Admin</button>
   </nav>
 
@@ -315,6 +316,7 @@
     <div class="panel" id="panel-bookings"></div>
     <div class="panel" id="panel-conversations"></div>
     <div class="panel" id="panel-widget"></div>
+    <div class="panel" id="panel-subscription"></div>
     <div class="panel" id="panel-platform"></div>
   </main>
   <div id="app-footer"><a href="privacy-policy.html">Privacy Policy</a></div>
@@ -484,6 +486,7 @@ const TAB_LOADERS = {
   bookings: loadBookingsTab,
   conversations: loadConversationsTab,
   widget: loadWidgetTab,
+  subscription: loadSubscriptionTab,
   platform: loadPlatformTab,
 };
 
@@ -1108,6 +1111,45 @@ function showWidgetPreview(widgetKey) {
 }
 
 // ---------------------------------------------------------------
+// Subscription (Jantar SaaS Phase 2 — visibility only; no payment
+// provider, checkout, or usage enforcement yet)
+// ---------------------------------------------------------------
+
+async function loadSubscriptionTab() {
+  const panel = document.getElementById("panel-subscription");
+  if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
+
+  const response = await api(`/admin/restaurant/${currentRestaurantId}/subscription`);
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not load subscription.")); return; }
+  const s = await response.json();
+
+  const periodEnd = s.current_period_end
+    ? new Date(s.current_period_end).toLocaleDateString()
+    : "Not set — no billing provider configured yet";
+
+  panel.innerHTML = `
+    <div class="card">
+      <h2>Subscription</h2>
+      <p><strong>Plan:</strong> ${escapeHtml(s.plan_name)} (${escapeHtml(s.plan_code)}) — $${s.limits.monthly_price_usd}/month</p>
+      <p><strong>Status:</strong> ${escapeHtml(s.status)}</p>
+      <p><strong>Current period ends:</strong> ${escapeHtml(periodEnd)}</p>
+      <p><strong>Cancels at period end:</strong> ${s.cancel_at_period_end ? "Yes" : "No"}</p>
+
+      <h3>Usage this month</h3>
+      <p>AI conversations: ${s.usage.conversations_this_period} / ${s.limits.max_conversations_per_month}</p>
+
+      <h3>Plan limits</h3>
+      <ul>
+        <li>Admin users: ${s.limits.max_admin_users}</li>
+        <li>WhatsApp: ${s.limits.whatsapp_enabled ? "Included" : "Not included"}</li>
+        <li>Widget branding: ${escapeHtml(s.limits.custom_widget_branding)}</li>
+      </ul>
+
+      <button disabled title="Payment provider integration is not available yet">Manage billing — Coming soon</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------
 // Platform admin (superadmin only)
 // ---------------------------------------------------------------
 
@@ -1124,8 +1166,26 @@ async function loadPlatformTab() {
   const allRestaurants = await restaurantsResp.json();
   const adminUsers = await adminUsersResp.json();
 
+  const PLAN_CODE_OPTIONS = ["starter", "growth", "pro"];
+  const SUBSCRIPTION_STATUS_OPTIONS = ["trialing", "active", "past_due", "canceled"];
+
   const restaurantRows = allRestaurants.map(r => `
-    <tr><td>${r.id}</td><td>${escapeHtml(r.name)}</td><td>${r.seating_capacity}</td></tr>`).join("");
+    <tr>
+      <td>${r.id}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${r.seating_capacity}</td>
+      <td>${escapeHtml(r.plan_code || "—")}</td>
+      <td>${escapeHtml(r.subscription_status || "—")}</td>
+      <td>
+        <select id="plan-select-${r.id}">
+          ${PLAN_CODE_OPTIONS.map(p => `<option value="${p}" ${p === r.plan_code ? "selected" : ""}>${p}</option>`).join("")}
+        </select>
+        <select id="status-select-${r.id}">
+          ${SUBSCRIPTION_STATUS_OPTIONS.map(s => `<option value="${s}" ${s === r.subscription_status ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+        <button onclick="updateRestaurantSubscription(${r.id})">Save</button>
+      </td>
+    </tr>`).join("");
 
   const adminUserRows = adminUsers.map(u => `
     <tr>
@@ -1151,7 +1211,7 @@ async function loadPlatformTab() {
     <div class="card">
       <h2>Restaurants</h2>
       <table>
-        <thead><tr><th>#</th><th>Name</th><th>Seats</th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Seats</th><th>Plan</th><th>Subscription status</th><th>Change plan/status</th></tr></thead>
         <tbody>${restaurantRows}</tbody>
       </table>
       <h2>Onboard a new restaurant</h2>
@@ -1248,6 +1308,17 @@ async function revokeAccess(adminUserId) {
   const restaurantId = document.getElementById(`grant-select-${adminUserId}`).value;
   const response = await api(`/admin/platform/admin-users/${adminUserId}/restaurants/${restaurantId}`, { method: "DELETE" });
   if (!response.ok) { showGlobalError(await describeError(response, "Could not revoke access.")); return; }
+  loadPlatformTab();
+}
+
+async function updateRestaurantSubscription(restaurantId) {
+  const plan_code = document.getElementById(`plan-select-${restaurantId}`).value;
+  const status = document.getElementById(`status-select-${restaurantId}`).value;
+  const response = await api(`/admin/platform/restaurants/${restaurantId}/subscription`, {
+    method: "PATCH",
+    body: JSON.stringify({ plan_code, status }),
+  });
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not update subscription.")); return; }
   loadPlatformTab();
 }
 

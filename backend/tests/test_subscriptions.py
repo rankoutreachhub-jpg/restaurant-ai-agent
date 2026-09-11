@@ -4,19 +4,22 @@ and app/models.py:Subscription/SubscriptionEvent, and the
 7459207d9901_subscriptions migration's docstring).
 
 Nothing here tests enforcement, billing, checkout, or any admin/API
-surface for subscriptions -- none of that exists yet. This file only
+surface for subscriptions -- none of that exists yet (see
+tests/test_subscription_visibility.py for the Phase 2 visibility
+endpoints and onboarding-initialization behavior). This file only
 verifies: the migration backfills exactly one Subscription row per
 restaurant that already existed in the table AT MIGRATION TIME, with
 the documented defaults; restaurant_id is enforced unique (one
 subscription per restaurant); the plan catalog matches the approved
 final numbers; and that adding this table changed nothing about
-existing restaurant data. Note: in THIS test suite, the demo restaurant
-(app/seed_data.py) and any restaurant created via the onboarding
-endpoint are both created strictly AFTER migrations run against a fresh
-test database, so neither ever gets backfilled here either -- see
-test_restaurants_created_after_migration_time_have_no_subscription_yet.
-That is the same, deliberately untouched gap the migration's docstring
-describes for a real, already-populated (e.g. production) database.
+existing restaurant data.
+
+Historical note: Phase 1 left restaurants created AFTER the migration
+(the demo restaurant seeded by app/seed_data.py, and any restaurant
+onboarded via the API) without a Subscription row -- a documented,
+deliberate gap at the time. Phase 2 closed that gap (both call sites
+now create one immediately), so that is no longer true here; see
+tests/test_subscription_visibility.py for the current behavior.
 """
 
 import sqlite3
@@ -36,11 +39,12 @@ def test_restaurant_id_is_unique_on_subscriptions(db, second_restaurant):
     for an already-subscribed restaurant must be rejected at the DB
     level, not just by application convention. Uses a freshly-created
     restaurant (via the second_restaurant fixture) rather than
-    restaurant 1, so this test's own committed row can't affect any
-    other test in this file regardless of execution order."""
-    db.add(models.Subscription(restaurant_id=second_restaurant, plan_code="starter", status="active"))
-    db.commit()
-
+    restaurant 1, so this test's own attempted row can't affect any
+    other test in this file regardless of execution order. Since Phase
+    2, second_restaurant already has its automatically-created
+    subscription by the time this fixture returns (see
+    tests/test_subscription_visibility.py), so only ONE additional
+    insert is attempted here, not two."""
     db.add(models.Subscription(restaurant_id=second_restaurant, plan_code="growth", status="active"))
     with pytest.raises(IntegrityError):
         db.commit()
@@ -90,29 +94,13 @@ def test_migration_backfills_one_subscription_per_pre_existing_restaurant(tmp_pa
     assert rows == [("starter", "active", None, None, None, None, 0)]
 
 
-def test_restaurants_created_after_migration_time_have_no_subscription_yet(client, admin_headers, second_restaurant, db):
-    """
-    Documents the deliberate Phase 1 scope boundary: this migration only
-    backfills restaurants that already existed in the table AT
-    MIGRATION TIME (see
-    test_migration_backfills_one_subscription_per_pre_existing_restaurant,
-    which proves that case in isolation against a real pre-existing
-    row). Neither the demo restaurant seeded by app/seed_data.py (which
-    runs on every fresh test database strictly AFTER migrations,
-    including this one) nor a restaurant created afterwards through the
-    ordinary onboarding endpoint gets a Subscription row automatically
-    -- that wiring is a separately-tracked later phase, not something
-    this migration or Phase 1 attempts. This test exists so that gap
-    stays a documented, intentional decision rather than silently
-    changing (in either direction) without a deliberate choice.
-    """
-    for restaurant_id in (1, second_restaurant):
-        subscription = (
-            db.query(models.Subscription)
-            .filter(models.Subscription.restaurant_id == restaurant_id)
-            .first()
-        )
-        assert subscription is None, f"restaurant {restaurant_id} unexpectedly has a subscription"
+# Note: a test previously lived here documenting that a restaurant
+# created after this migration ran (the seeded demo restaurant, or one
+# onboarded via the API) got no Subscription row -- the Phase 1 gap
+# this migration's docstring describes. Phase 2 closed that gap (see
+# app/subscriptions.py:create_subscription_for_restaurant and its two
+# call sites); the current behavior is covered by
+# tests/test_subscription_visibility.py instead.
 
 
 def test_existing_restaurant_row_is_bit_for_bit_unchanged_by_the_migration(tmp_path, monkeypatch):

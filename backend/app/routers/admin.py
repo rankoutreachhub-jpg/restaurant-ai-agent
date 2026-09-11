@@ -8,7 +8,9 @@ from ..database import get_db
 from .. import models, schemas
 from ..auth import AdminIdentity, get_current_admin
 from ..authz import require_restaurant_access
+from ..plans import PLAN_LIMITS
 from ..rate_limit import admin_rate_limiter
+from ..subscriptions import current_period_conversation_count
 from ..widget_keys import generate_widget_key
 
 logger = logging.getLogger(__name__)
@@ -673,6 +675,49 @@ def delete_widget_allowed_origin(
 
     db.delete(origin_row)
     db.commit()
+
+
+# =========================================================
+# SUBSCRIPTION (Jantar SaaS Phase 2 — visibility only; no payment
+# provider, checkout, or usage enforcement yet — see app/plans.py and
+# app/models.py:Subscription)
+# =========================================================
+
+@router.get("/restaurant/{restaurant_id}/subscription", response_model=schemas.SubscriptionOut)
+def get_restaurant_subscription(
+    restaurant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    require_restaurant_access(restaurant_id, db, current_admin)
+
+    subscription = (
+        db.query(models.Subscription)
+        .filter(models.Subscription.restaurant_id == restaurant_id)
+        .first()
+    )
+    if not subscription:
+        raise HTTPException(status_code=404, detail="No subscription exists for this restaurant yet")
+
+    plan = PLAN_LIMITS[subscription.plan_code]
+    usage = current_period_conversation_count(db, restaurant_id)
+
+    return schemas.SubscriptionOut(
+        restaurant_id=restaurant_id,
+        plan_code=subscription.plan_code,
+        plan_name=plan["display_name"],
+        status=subscription.status,
+        current_period_end=subscription.current_period_end,
+        cancel_at_period_end=subscription.cancel_at_period_end,
+        usage=schemas.SubscriptionUsageOut(conversations_this_period=usage),
+        limits=schemas.PlanDetailsOut(
+            monthly_price_usd=plan["monthly_price_usd"],
+            max_conversations_per_month=plan["max_conversations_per_month"],
+            max_admin_users=plan["max_admin_users"],
+            whatsapp_enabled=plan["whatsapp_enabled"],
+            custom_widget_branding=plan["custom_widget_branding"],
+        ),
+    )
 
     logger.info("Widget allowed origin removed (restaurant_id=%s)", restaurant_id)
     return {"message": "Allowed origin removed", "origin_id": origin_id}

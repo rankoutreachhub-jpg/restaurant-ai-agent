@@ -52,9 +52,13 @@ def test_list_restaurants_with_superadmin_key_includes_all_restaurants(
     ids = {r["id"] for r in response.json()}
     assert {1, second_restaurant} <= ids
     for restaurant in response.json():
+        # plan_code/subscription_status (Jantar SaaS Phase 2) are
+        # additive fields on this same response -- see
+        # tests/test_subscription_visibility.py for their behavior.
         assert set(restaurant.keys()) == {
             "id", "name", "address", "phone", "email",
             "map_link", "parking_notes", "seating_capacity",
+            "plan_code", "subscription_status",
         }
 
 

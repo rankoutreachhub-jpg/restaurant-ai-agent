@@ -11,6 +11,9 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 from typing import List, Literal, Optional
 
+from .plans import PlanCode
+from .subscriptions import SubscriptionStatus
+
 
 CHAT_MESSAGE_MAX_LENGTH = 2000
 CHAT_HISTORY_MAX_TURNS = 40
@@ -302,6 +305,79 @@ class RestaurantOut(BaseModel):
     seating_capacity: int
 
     model_config = {"from_attributes": True}
+
+
+class RestaurantWithSubscriptionOut(RestaurantOut):
+    """
+    RestaurantOut plus two additive fields (Jantar SaaS Phase 2) for the
+    superadmin restaurant list — GET /admin/platform/restaurants. Both
+    are None only for a restaurant onboarded in the gap between the
+    Phase 1 migration and this deploy (not expected going forward — see
+    routers/platform_admin.py:create_restaurant).
+    """
+    plan_code: Optional[str] = None
+    subscription_status: Optional[str] = None
+
+
+# --- Subscriptions (Jantar SaaS Phase 2 — visibility only; no
+# payment provider, checkout, or usage enforcement yet) ---
+
+class PlanDetailsOut(BaseModel):
+    monthly_price_usd: int
+    max_conversations_per_month: int
+    max_admin_users: int
+    whatsapp_enabled: bool
+    custom_widget_branding: str
+
+
+class SubscriptionUsageOut(BaseModel):
+    conversations_this_period: int
+
+
+class SubscriptionOut(BaseModel):
+    """Restaurant-scoped view — GET /admin/restaurant/{id}/subscription.
+    Deliberately excludes provider-linked fields (billing_provider,
+    provider_customer_id, provider_subscription_id): those are an
+    internal/superadmin-only detail, not something a restaurant admin
+    needs to see."""
+    restaurant_id: int
+    plan_code: str
+    plan_name: str
+    status: str
+    current_period_end: Optional[datetime] = None
+    cancel_at_period_end: bool
+    usage: SubscriptionUsageOut
+    limits: PlanDetailsOut
+
+
+class SubscriptionAdminOut(BaseModel):
+    """Superadmin view — GET/PATCH .../platform/restaurants/{id}/subscription.
+    The full raw row, including provider-linked fields, for internal
+    visibility/debugging."""
+    id: int
+    restaurant_id: int
+    plan_code: str
+    status: str
+    billing_provider: Optional[str] = None
+    provider_customer_id: Optional[str] = None
+    provider_subscription_id: Optional[str] = None
+    current_period_end: Optional[datetime] = None
+    cancel_at_period_end: bool
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SubscriptionAdminUpdate(BaseModel):
+    """
+    Manual plan/status changes only (Jantar SaaS Phase 2) — the only
+    fields a superadmin may edit while no payment provider is wired.
+    Provider-linked fields are intentionally not exposed here; see
+    routers/platform_admin.py:update_restaurant_subscription.
+    """
+    plan_code: Optional[PlanCode] = None
+    status: Optional[SubscriptionStatus] = None
 
 
 # --- WhatsApp number mapping (Stage 3 Step 6B) ---
