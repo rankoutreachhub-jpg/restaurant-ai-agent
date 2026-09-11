@@ -841,7 +841,13 @@ async function loadConversationsTab() {
 }
 
 async function viewConversation(conversationId) {
-  const response = await api(`/admin/restaurant/${currentRestaurantId}/conversations/${conversationId}/messages`);
+  let response;
+  try {
+    response = await api(`/admin/restaurant/${currentRestaurantId}/conversations/${conversationId}/messages`);
+  } catch (err) {
+    showGlobalError("Could not load messages. Please check your connection and try again.");
+    return;
+  }
   if (!response.ok) { showGlobalError(await describeError(response, "Could not load messages.")); return; }
   const messages = await response.json();
 
