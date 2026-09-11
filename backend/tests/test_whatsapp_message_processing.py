@@ -160,6 +160,41 @@ def test_send_api_failure_does_not_persist_the_turn(client, monkeypatch, db, wha
     assert _messages_for(db, "wamid.send.fail") == []
 
 
+def _whatsapp_conversations_for(db, customer_phone_e164):
+    return (
+        db.query(models.Conversation)
+        .filter(
+            models.Conversation.channel == "whatsapp",
+            models.Conversation.external_id == customer_phone_e164,
+        )
+        .all()
+    )
+
+
+def test_gemini_failure_creates_no_orphaned_conversation(client, monkeypatch, db, whatsapp_number):
+    """
+    Regression test: a brand-new WhatsApp conversation whose first
+    Gemini call fails must leave no orphaned Conversation row --
+    complementing test_gemini_failure_does_not_send_or_persist's
+    message-level check with the actual production symptom (a
+    conversation visible in admin with zero persisted messages).
+    Root cause was get_or_create_whatsapp_conversation() committing the
+    new conversation immediately, before this call could fail.
+    """
+    phone_number_id = whatsapp_number(1)
+
+    def fake_generate_content(model, contents, config):
+        raise RuntimeError("simulated Gemini failure")
+
+    monkeypatch.setattr(llm_module.client.models, "generate_content", fake_generate_content)
+    _stub_send_ok(monkeypatch)
+
+    process_incoming_message(phone_number_id, _text_message("wamid.gemini.fail.orphan", "447911100099", "hi"))
+
+    db.expire_all()
+    assert _whatsapp_conversations_for(db, "+447911100099") == []
+
+
 def test_unsupported_message_type_is_dropped_without_error(client, monkeypatch, db, whatsapp_number):
     phone_number_id = whatsapp_number(1)
     call_count = {"n": 0}

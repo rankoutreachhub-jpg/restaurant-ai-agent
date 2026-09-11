@@ -310,6 +310,30 @@ def test_plain_gemini_failure_returns_500_and_persists_nothing(client, monkeypat
     assert db.query(models.Message).count() == before
 
 
+def test_plain_gemini_failure_creates_no_orphaned_conversation(client, monkeypatch, admin_headers, second_restaurant, db):
+    """
+    Regression test mirroring tests/test_chat_persistence.py's namesake:
+    a brand-new widget conversation whose first Gemini call fails must
+    leave no orphaned Conversation row (previously
+    get_or_create_conversation committed the conversation immediately,
+    before this call could fail) -- the exact production symptom of a
+    conversation visible in Admin -> Conversations with zero messages.
+    """
+    created = _create_widget_config(client, admin_headers, second_restaurant)
+
+    def _boom(model, contents, config):
+        raise RuntimeError("simulated Gemini outage")
+
+    monkeypatch.setattr(llm_module.client.models, "generate_content", _boom)
+    before = len(_conversations_for(db, second_restaurant))
+
+    response = client.post(_chat_url(created["widget_key"]), json={"message": "hi"})
+    assert response.status_code == 500
+
+    db.expire_all()
+    assert len(_conversations_for(db, second_restaurant)) == before
+
+
 # --- Booking tool / function calling ---
 
 def test_successful_booking_through_the_widget(client, monkeypatch, admin_headers, second_restaurant, db):

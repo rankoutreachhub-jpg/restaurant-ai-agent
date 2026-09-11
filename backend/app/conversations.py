@@ -70,6 +70,17 @@ def get_or_create_conversation(
     default and is completely unaffected. Resuming an existing
     conversation is unchanged either way — still keyed purely by
     (public_token, restaurant_id), never by channel.
+
+    A brand-new conversation is deliberately NOT committed here. It is
+    only flush()ed — which assigns conversation.id and populates its
+    column defaults within the current transaction, without making the
+    row durable — so it rides along with the caller's first
+    persist_turn() commit. If the caller never reaches persist_turn()
+    (e.g. the Gemini call raises), this insert is rolled back along with
+    everything else when the request's session closes uncommitted (see
+    app/database.py:get_db), instead of leaving a permanently orphaned
+    conversation with zero messages, which is what a prior version of
+    this function did by committing immediately.
     """
     if public_token:
         existing = (
@@ -89,8 +100,7 @@ def get_or_create_conversation(
         channel=channel,
     )
     db.add(conversation)
-    db.commit()
-    db.refresh(conversation)
+    db.flush()
     return conversation, True
 
 
@@ -116,6 +126,12 @@ def get_or_create_whatsapp_conversation(
     EXACTLY 24 hours ago (updated_at == window_start, to the second) is
     still considered within the window (the comparison is >=), so it is
     resumed; anything older starts a new conversation.
+
+    Same deferred-commit behaviour as get_or_create_conversation above:
+    a brand-new conversation is flush()ed (for a valid id) but not
+    committed, so it only becomes durable once process_incoming_message
+    reaches persist_turn()'s own commit — never left orphaned if Gemini
+    or the Send API call fails first.
     """
     window_start = datetime.utcnow() - WHATSAPP_CUSTOMER_SERVICE_WINDOW
     existing = (
@@ -139,8 +155,7 @@ def get_or_create_whatsapp_conversation(
         external_id=customer_phone,
     )
     db.add(conversation)
-    db.commit()
-    db.refresh(conversation)
+    db.flush()
     return conversation, True
 
 
@@ -187,6 +202,13 @@ def persist_turn(
     redelivered webhook event can be recognised as a duplicate before
     ever reaching this function again. None for web chat, which has no
     such external id.
+
+    When conversation is a brand-new one from get_or_create_conversation/
+    get_or_create_whatsapp_conversation, it has been flush()ed but not
+    committed — conversation.id is already valid to reference below, and
+    the commit() at the end of this function is what makes the
+    conversation row itself durable for the first time, together with
+    both message rows, in a single transaction.
     """
     now = datetime.utcnow()
     db.add(models.Message(

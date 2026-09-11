@@ -305,3 +305,69 @@ def test_booking_succeeds_but_final_reply_failure_does_not_persist_the_turn(clie
         db.query(models.Conversation.updated_at).filter(models.Conversation.id == conversation_id).scalar()
     )
     assert updated_at_after == updated_at_before
+
+
+def test_new_conversation_gemini_failure_creates_no_orphaned_conversation(client, monkeypatch, db):
+    """
+    Regression test for the reported production bug: a conversation
+    visible in the admin dashboard whose messages endpoint returns [].
+    Root cause was get_or_create_conversation() committing a brand-new
+    conversation immediately, before the Gemini call that could fail.
+    It is now only flush()ed (not committed) until persist_turn()'s own
+    commit, so a Gemini failure on a conversation's very first turn must
+    leave no trace of that conversation at all.
+    """
+    def _boom(model, contents, config):
+        raise RuntimeError("simulated Gemini outage")
+
+    monkeypatch.setattr(llm_module.client.models, "generate_content", _boom)
+    before = len(_conversations_for(db))
+
+    response = client.post("/chat", json={"message": "hi", "history": [], "restaurant_id": 1})
+    assert response.status_code == 500
+
+    db.expire_all()
+    assert len(_conversations_for(db)) == before
+
+
+def test_existing_conversation_plain_gemini_failure_leaves_conversation_intact(client, monkeypatch, db):
+    """
+    A conversation that already exists (a prior turn succeeded) must
+    survive a LATER Gemini failure untouched: still present, its
+    updated_at unmoved, and no partial message added for the failed
+    turn -- distinct from
+    test_new_conversation_gemini_failure_creates_no_orphaned_conversation
+    above, which covers a conversation's very first turn failing.
+    """
+    _stub_plain_reply(monkeypatch, "hello")
+    setup = client.post("/chat", json={"message": "hi", "history": [], "restaurant_id": 1})
+    token = setup.headers["X-Conversation-Token"]
+    conversation_id = (
+        db.query(models.Conversation).filter(models.Conversation.public_token == token).one().id
+    )
+
+    db.expire_all()
+    updated_at_before = (
+        db.query(models.Conversation.updated_at).filter(models.Conversation.id == conversation_id).scalar()
+    )
+    messages_before = (
+        db.query(models.Message).filter(models.Message.conversation_id == conversation_id).count()
+    )
+
+    def _boom(model, contents, config):
+        raise RuntimeError("simulated Gemini outage on a later turn")
+
+    monkeypatch.setattr(llm_module.client.models, "generate_content", _boom)
+    response = client.post(
+        "/chat",
+        json={"message": "still there?", "history": [], "restaurant_id": 1, "conversation_token": token},
+    )
+    assert response.status_code == 500
+
+    db.expire_all()
+    still_exists = db.query(models.Conversation).filter(models.Conversation.id == conversation_id).one()
+    assert still_exists.updated_at == updated_at_before
+    messages_after = (
+        db.query(models.Message).filter(models.Message.conversation_id == conversation_id).count()
+    )
+    assert messages_after == messages_before
