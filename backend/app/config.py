@@ -78,6 +78,41 @@ ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 
+# --- Trusted proxy / real client IP (Security & Production Hardening
+# Audit finding C1) ---
+# request.client.host (read by app/rate_limit.py and app/auth.py — see
+# both modules' own docstrings) is populated by uvicorn's
+# ProxyHeadersMiddleware, not by this app's code: uvicorn's
+# --proxy-headers is already on by default (see the Dockerfile CMD,
+# which doesn't pass --no-proxy-headers) and rewrites it from the
+# X-Forwarded-For header, but ONLY when the immediate connecting peer's
+# address is in --forwarded-allow-ips / the FORWARDED_ALLOW_IPS
+# environment variable (uvicorn's own default: "127.0.0.1", i.e.
+# trust nobody except a same-host reverse proxy). Behind Railway's edge,
+# the connecting peer is Railway's own proxy, not 127.0.0.1, so with
+# nothing configured, request.client.host is Railway's proxy address on
+# every request, not the real visitor's — silently degrading every
+# per-IP rate limiter (app/rate_limit.py) into one shared global bucket,
+# and making the failed-admin-auth log (app/auth.py) show the proxy's
+# address instead of an attacker's.
+#
+# This value is read here ONLY so validate_config() below can warn about
+# an unsafe setting — app/config.py does not use it for anything at
+# runtime, and setting it in backend/.env has no effect on uvicorn's own
+# decision (uvicorn resolves it from a real process environment variable
+# before this module is ever imported, so it must be exported in the
+# actual shell/process environment locally, or set as a real Railway
+# environment variable in production — both of which are already true
+# for GEMINI_API_KEY/ADMIN_API_KEY today).
+#
+# Left UNSET by default (preserving today's behavior exactly): setting
+# this to your confirmed trusted proxy IP(s) — never "*", which trusts
+# whatever the ORIGINAL, unauthenticated client itself claims as the
+# first hop in X-Forwarded-For — is a deployment-topology decision for
+# whoever configures the real Railway service, not something this
+# codebase can safely guess or default to.
+FORWARDED_ALLOW_IPS = os.getenv("FORWARDED_ALLOW_IPS", "").strip()
+
 # Directory for the rotating application log file (see
 # app/logging_config.py). Defaults to backend/logs/, absolute for the
 # same reason DATABASE_URL is: it should land in the same place no
@@ -223,6 +258,31 @@ def validate_config():
                 "WARNING: ADMIN_API_KEY_PREVIOUS is shorter than 16 characters. "
                 "Use a long, randomly generated secret."
             )
+
+    if FORWARDED_ALLOW_IPS.strip() == "*":
+        # Not a hard failure — this may be a deliberate, informed choice
+        # on some topologies — but "*" means uvicorn's ProxyHeadersMiddleware
+        # trusts the FIRST (leftmost) entry in X-Forwarded-For, which on a
+        # multi-hop path can be whatever the original, unauthenticated
+        # client itself claimed, not a value any proxy actually vouched
+        # for. See this file's FORWARDED_ALLOW_IPS comment above.
+        print(
+            "WARNING: FORWARDED_ALLOW_IPS is set to '*', which trusts ANY "
+            "X-Forwarded-For value an inbound request supplies, including one "
+            "an attacker sets directly if your app is ever reachable other "
+            "than through your trusted proxy. Prefer listing your proxy's "
+            "actual IP address(es) instead."
+        )
+    elif not FORWARDED_ALLOW_IPS:
+        print(
+            "NOTE: FORWARDED_ALLOW_IPS is not set (uvicorn defaults to trusting "
+            "only 127.0.0.1). If this app runs behind a reverse proxy that isn't "
+            "on the same host (e.g. Railway's edge), request.client.host — used "
+            "for rate limiting (app/rate_limit.py) and failed-admin-auth logging "
+            "(app/auth.py) — will reflect the proxy's address, not the real "
+            "visitor's, until FORWARDED_ALLOW_IPS is set to that proxy's actual "
+            "IP address(es). See backend/.env.example."
+        )
 
     if problems:
         print("\n" + "=" * 70)

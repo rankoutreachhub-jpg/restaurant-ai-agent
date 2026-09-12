@@ -62,4 +62,13 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 # management path for every environment (see app/main.py and README.md,
 # "Database migrations"). If a migration fails, the container fails to
 # start rather than serving traffic against a stale/broken schema.
+#
+# uvicorn's --proxy-headers is already ON by default (no --no-proxy-headers
+# passed) — it rewrites request.client.host from X-Forwarded-For, but ONLY
+# for a connecting peer listed in --forwarded-allow-ips / the
+# FORWARDED_ALLOW_IPS env var (default: "127.0.0.1", i.e. trust nobody
+# behind a proxy that isn't on the same host — see backend/.env.example
+# for how to configure this correctly for Railway or another reverse
+# proxy). Nothing here needs to change to support that — it's a plain
+# environment variable, not a CLI flag, so it's set per-environment.
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT"]
