@@ -580,4 +580,27 @@ class MessageOut(BaseModel):
     triggered_tool_call: bool
     created_at: datetime
 
+
+# --- Superadmin onboarding readiness checklist ---
+# Read-only, computed entirely from existing tables/config (see
+# app/onboarding_status.py) -- no new business rules enforced, no new
+# table. `blocking` says whether this check counts toward
+# RestaurantOnboardingStatusOut.overall_status; a non-blocking check is
+# shown for visibility only and never prevents "ready".
+
+class OnboardingCheckOut(BaseModel):
+    key: str
+    label: str
+    status: Literal["complete", "needs_setup", "optional_not_configured"]
+    blocking: bool
+    detail: str
+    next_actions: List[str] = []
+
+
+class RestaurantOnboardingStatusOut(BaseModel):
+    restaurant_id: int
+    restaurant_name: str
+    overall_status: Literal["ready", "incomplete", "critical_setup_missing"]
+    checks: List[OnboardingCheckOut]
+
     model_config = {"from_attributes": True}

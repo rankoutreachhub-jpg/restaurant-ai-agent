@@ -231,6 +231,13 @@
   .status-pill { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 12px; font-weight: 600; margin-right: 8px; }
   .status-pill.on { background: #e3f5e6; color: #1e7a34; }
   .status-pill.off { background: #eee; color: #777; }
+
+  /* --- Onboarding readiness checklist (superadmin, Platform Admin tab) --- */
+  .status-pill.warn { background: #fff2d6; color: #8a6300; }
+  .status-pill.critical { background: #fde2e2; color: #b00020; }
+  .onboarding-checklist { margin: 8px 0 0; padding-left: 18px; }
+  .onboarding-checklist li { font-size: 12px; margin-bottom: 6px; }
+  .onboarding-checklist .next-actions { color: #888; }
   .accent-color-row { align-items: center; }
   .accent-color-row input[type="color"] {
     flex: 0 0 auto;
@@ -1164,19 +1171,43 @@ async function loadPlatformTab() {
   const panel = document.getElementById("panel-platform");
   if (!identity || !identity.is_superadmin) { panel.innerHTML = ""; return; }
 
-  const [restaurantsResp, adminUsersResp] = await Promise.all([
+  const [restaurantsResp, adminUsersResp, onboardingResp] = await Promise.all([
     api("/admin/platform/restaurants"),
     api("/admin/platform/admin-users"),
+    api("/admin/platform/restaurants/onboarding-status"),
   ]);
   if (!restaurantsResp.ok) { showGlobalError(await describeError(restaurantsResp, "Could not load restaurants.")); return; }
   if (!adminUsersResp.ok) { showGlobalError(await describeError(adminUsersResp, "Could not load admin users.")); return; }
+  if (!onboardingResp.ok) { showGlobalError(await describeError(onboardingResp, "Could not load onboarding status.")); return; }
   const allRestaurants = await restaurantsResp.json();
   const adminUsers = await adminUsersResp.json();
+  const onboardingStatuses = await onboardingResp.json();
+  const onboardingByRestaurantId = Object.fromEntries(onboardingStatuses.map(o => [o.restaurant_id, o]));
 
   const PLAN_CODE_OPTIONS = ["starter", "growth", "pro"];
   const SUBSCRIPTION_STATUS_OPTIONS = ["trialing", "active", "past_due", "canceled"];
 
-  const restaurantRows = allRestaurants.map(r => `
+  const OVERALL_READINESS = {
+    ready: { icon: "✅", text: "Ready", cls: "on" },
+    incomplete: { icon: "⚠️", text: "Incomplete", cls: "warn" },
+    critical_setup_missing: { icon: "⚠️", text: "Critical setup missing", cls: "critical" },
+  };
+  const CHECK_STATUS_ICON = { complete: "✅", needs_setup: "⚠️", optional_not_configured: "—" };
+
+  function renderOnboardingChecklist(status) {
+    if (!status) return "<p class=\"muted\">Onboarding status unavailable.</p>";
+    const items = status.checks.map(c => `
+      <li>
+        ${CHECK_STATUS_ICON[c.status] || ""} <strong>${escapeHtml(c.label)}:</strong> ${escapeHtml(c.detail)}
+        ${c.next_actions.length ? `<span class="next-actions"> — ${c.next_actions.map(a => escapeHtml(a)).join("; ")}</span>` : ""}
+      </li>`).join("");
+    return `<ul class="onboarding-checklist">${items}</ul>`;
+  }
+
+  const restaurantRows = allRestaurants.map(r => {
+    const onboarding = onboardingByRestaurantId[r.id];
+    const readiness = onboarding ? OVERALL_READINESS[onboarding.overall_status] : null;
+    return `
     <tr>
       <td>${r.id}</td>
       <td>${escapeHtml(r.name)}</td>
@@ -1192,7 +1223,15 @@ async function loadPlatformTab() {
         </select>
         <button onclick="updateRestaurantSubscription(${r.id})">Save</button>
       </td>
-    </tr>`).join("");
+      <td>
+        ${readiness ? `<span class="status-pill ${readiness.cls}">${readiness.icon} ${readiness.text}</span>` : "—"}
+        <button onclick="toggleOnboardingDetails(${r.id})">Details</button>
+      </td>
+    </tr>
+    <tr id="onboarding-details-${r.id}" hidden>
+      <td colspan="7">${renderOnboardingChecklist(onboarding)}</td>
+    </tr>`;
+  }).join("");
 
   const adminUserRows = adminUsers.map(u => `
     <tr>
@@ -1218,7 +1257,7 @@ async function loadPlatformTab() {
     <div class="card">
       <h2>Restaurants</h2>
       <table>
-        <thead><tr><th>#</th><th>Name</th><th>Seats</th><th>Plan</th><th>Subscription status</th><th>Change plan/status</th></tr></thead>
+        <thead><tr><th>#</th><th>Name</th><th>Seats</th><th>Plan</th><th>Subscription status</th><th>Change plan/status</th><th>Readiness</th></tr></thead>
         <tbody>${restaurantRows}</tbody>
       </table>
       <h2>Onboard a new restaurant</h2>
@@ -1287,6 +1326,11 @@ function showKeyReveal(apiKey, heading) {
       <strong>${escapeHtml(heading)}</strong> — copy this key now. It will not be shown again.
       <code>${escapeHtml(apiKey)}</code>
     </div>`;
+}
+
+function toggleOnboardingDetails(restaurantId) {
+  const row = document.getElementById(`onboarding-details-${restaurantId}`);
+  if (row) row.hidden = !row.hidden;
 }
 
 async function toggleAdminUserActive(id, makeActive) {

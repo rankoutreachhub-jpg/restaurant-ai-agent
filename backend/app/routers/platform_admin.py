@@ -25,6 +25,7 @@ from .. import models, schemas
 from ..admin_keys import generate_key
 from ..auth import AdminIdentity, require_superadmin
 from ..database import get_db
+from ..onboarding_status import compute_restaurant_onboarding_status
 from ..rate_limit import admin_rate_limiter
 from ..subscriptions import create_subscription_for_restaurant
 from ..widget_keys import generate_widget_key
@@ -175,6 +176,32 @@ def list_restaurants(db: Session = Depends(get_db)):
         )
         for r in restaurants
     ]
+
+
+# =========================================================
+# ONBOARDING READINESS CHECKLIST (superadmin-only, read-only — see
+# app/onboarding_status.py for exactly which checks are computed and
+# which ones are blocking vs. informational). Reuses this router's own
+# require_superadmin dependency (declared above on `router`); no new
+# authentication path and no new database table.
+# =========================================================
+
+@router.get(
+    "/restaurants/onboarding-status",
+    response_model=list[schemas.RestaurantOnboardingStatusOut],
+)
+def list_restaurants_onboarding_status(db: Session = Depends(get_db)):
+    restaurants = db.query(models.Restaurant).order_by(models.Restaurant.id).all()
+    return [compute_restaurant_onboarding_status(db, r) for r in restaurants]
+
+
+@router.get(
+    "/restaurants/{restaurant_id}/onboarding-status",
+    response_model=schemas.RestaurantOnboardingStatusOut,
+)
+def get_restaurant_onboarding_status(restaurant_id: int, db: Session = Depends(get_db)):
+    restaurant = _get_restaurant_or_404(db, restaurant_id)
+    return compute_restaurant_onboarding_status(db, restaurant)
 
 
 # =========================================================
