@@ -386,3 +386,207 @@ def test_demo_page_links_back_to_homepage_and_other_pages():
     content = _read("demo.html")
     for href in ('href="index.html"', 'href="pricing.html"', 'href="privacy-policy.html"', 'href="terms-of-service.html"'):
         assert href in content
+
+
+# --- SEO foundation (jantarai.com not connected yet -- no canonical/og:url/
+# sitemap/robots.txt in this pass; see the approved read-only SEO audit) ---
+
+PUBLIC_SEO_PAGES = {
+    "index.html": {
+        "title": "Jantar AI — AI Chat &amp; Table Booking for Restaurants",
+        "description": (
+            "Jantar AI gives restaurants an AI chat assistant for their website and "
+            "WhatsApp, with automatic table booking and an admin dashboard. See plans and pricing."
+        ),
+        "og_title": "Jantar AI — AI Chat & Table Booking for Restaurants",
+        "robots": "index, follow",
+    },
+    "pricing.html": {
+        "title": "Pricing — Jantar AI",
+        "description": (
+            "Jantar AI plans for restaurants: AI website chat, table booking, and "
+            "WhatsApp messaging. Starter from $39/month. See features and pricing."
+        ),
+        "og_title": "Pricing — Jantar AI",
+        "robots": "index, follow",
+    },
+    "terms-of-service.html": {
+        "title": "Terms of Service — Jantar AI",
+        "description": (
+            "Terms of Service for Jantar AI, the AI chat and booking platform for "
+            "restaurants. Read what the current early-stage MVP covers."
+        ),
+        "og_title": "Terms of Service — Jantar AI",
+        "robots": "index, follow",
+    },
+    "privacy-policy.html": {
+        "title": "Privacy Policy — Jantar AI",
+        "description": (
+            "Privacy Policy for Jantar AI, describing what data is collected through "
+            "AI chat, WhatsApp, and table bookings, and how it's used."
+        ),
+        "og_title": "Privacy Policy — Jantar AI",
+        "robots": "index, follow",
+    },
+    "demo.html": {
+        "title": "Live Demo Chat — Jantar AI",
+        "description": "See a live example of the Jantar AI restaurant chat assistant in action.",
+        "og_title": "Live Demo Chat — Jantar AI",
+        "robots": "noindex, follow",
+    },
+}
+
+ALL_SIX_PAGES = list(PUBLIC_SEO_PAGES.keys()) + ["admin.html"]
+
+
+def test_meta_descriptions_are_present_and_unique_across_public_pages():
+    descriptions = []
+    for page, expected in PUBLIC_SEO_PAGES.items():
+        content = _read(page)
+        tag = f'<meta name="description" content="{expected["description"]}">'
+        assert tag in content, f"{page} missing its approved meta description"
+        descriptions.append(expected["description"])
+    assert len(descriptions) == len(set(descriptions)), "meta descriptions must be unique per page"
+
+
+def test_robots_directives_are_correct_per_page():
+    for page, expected in PUBLIC_SEO_PAGES.items():
+        content = _read(page)
+        assert f'<meta name="robots" content="{expected["robots"]}">' in content, \
+            f"{page} should have robots={expected['robots']!r}"
+
+
+def test_admin_page_is_noindex_nofollow_and_has_no_marketing_metadata():
+    """
+    admin.html legitimately contains name="description" as an unrelated
+    menu-item form field (<textarea name="description">) -- checked for
+    specifically as <meta name="description" so that pre-existing,
+    unrelated admin UI isn't a false positive here.
+    """
+    content = _read("admin.html")
+    assert '<meta name="robots" content="noindex, nofollow">' in content
+    assert '<meta name="description"' not in content
+    assert "og:title" not in content
+    assert "og:description" not in content
+    assert "twitter:" not in content
+
+
+def test_demo_page_is_noindex_follow():
+    """noindex keeps the example-restaurant demo out of search results;
+    follow still lets crawlers discover the links it points to (Pricing,
+    Terms, Privacy, Home)."""
+    assert '<meta name="robots" content="noindex, follow">' in _read("demo.html")
+
+
+def test_open_graph_title_description_type_correct_on_every_public_page():
+    for page, expected in PUBLIC_SEO_PAGES.items():
+        content = _read(page)
+        assert f'property="og:title" content="{expected["og_title"]}"' in content, page
+        assert 'property="og:type" content="website"' in content, page
+        # og:description must match the same text as the meta description.
+        assert f'property="og:description" content="{expected["description"]}"' in content, page
+
+
+def test_twitter_card_title_description_correct_on_every_public_page():
+    for page, expected in PUBLIC_SEO_PAGES.items():
+        content = _read(page)
+        assert 'name="twitter:card" content="summary"' in content, page
+        assert f'name="twitter:title" content="{expected["og_title"]}"' in content, page
+        assert f'name="twitter:description" content="{expected["description"]}"' in content, page
+
+
+def test_admin_page_has_no_twitter_card_tags():
+    assert "twitter:" not in _read("admin.html")
+
+
+def test_no_canonical_or_og_url_anywhere_yet():
+    """jantarai.com is not connected yet -- canonical and og:url must
+    wait, per the approved SEO audit, rather than point at a domain
+    that isn't live."""
+    for page in ALL_SIX_PAGES:
+        content = _read(page)
+        assert 'rel="canonical"' not in content, page
+        assert "og:url" not in content, page
+
+
+def test_no_invented_og_image_anywhere():
+    """No image asset exists in this repo -- og:image must not be
+    invented or pointed at a placeholder/remote URL."""
+    for page in ALL_SIX_PAGES:
+        assert "og:image" not in _read(page), page
+        assert "twitter:image" not in _read(page), page
+
+
+def test_privacy_policy_footer_links_are_fixed():
+    """Regression test for the SEO audit's biggest internal-linking
+    gap: privacy-policy.html previously linked to nothing at all."""
+    content = _read("privacy-policy.html")
+    for href in ('href="index.html"', 'href="pricing.html"', 'href="terms-of-service.html"',
+                 'href="mailto:rankoutreachhub@gmail.com"'):
+        assert href in content
+
+
+def test_privacy_policy_is_fully_rebranded_to_jantar_ai():
+    """This task explicitly approved renaming the remaining "Restaurant
+    AI Agent" occurrences in privacy-policy.html to "Jantar AI" -- none
+    should be left behind."""
+    assert "Restaurant AI Agent" not in _read("privacy-policy.html")
+
+
+FAVICON_RASTER_ASSETS = [
+    "favicon-16x16.png", "favicon-32x32.png", "favicon-48x48.png",
+    "favicon-512x512.png", "apple-touch-icon.png",
+]
+
+
+def test_favicon_assets_exist_locally_and_are_not_remote():
+    """
+    No external/remote favicon URL -- real local SVG + PNG files,
+    referenced consistently from all six pages. The SVG's own
+    xmlns="http://www.w3.org/2000/svg" namespace declaration is
+    standard, required SVG boilerplate (never fetched over the
+    network) and is deliberately not flagged here -- only an actual
+    external resource reference (<image>, xlink:href, a src/href
+    pointing off-repo) would be a real problem.
+    """
+    favicon_path = FRONTEND_DIR / "favicon.svg"
+    assert favicon_path.exists(), "expected frontend/favicon.svg to exist"
+    svg_content = favicon_path.read_text()
+    assert "<svg" in svg_content
+    assert "<image" not in svg_content
+    assert "xlink:href" not in svg_content
+    assert "https://" not in svg_content
+
+    for asset in FAVICON_RASTER_ASSETS:
+        asset_path = FRONTEND_DIR / asset
+        assert asset_path.exists(), f"expected frontend/{asset} to exist"
+        assert asset_path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n", f"{asset} should be a real PNG file"
+
+
+def test_favicon_design_matches_the_approved_artwork():
+    """The approved design: maroon #7a2e2e background, an 8-point gold
+    sunburst (#F0A500 rays, #FFD65C core) as the J's dot, and the same
+    white J glyph as before -- unchanged, not redesigned."""
+    svg_content = (FRONTEND_DIR / "favicon.svg").read_text()
+    assert 'fill="#7a2e2e"' in svg_content
+    assert 'fill="#F0A500"' in svg_content
+    assert 'fill="#FFD65C"' in svg_content
+    assert ">J<" in svg_content
+
+
+def test_favicon_referenced_consistently_from_every_page():
+    for page in ALL_SIX_PAGES:
+        content = _read(page)
+        assert '<link rel="icon" type="image/svg+xml" href="favicon.svg">' in content, \
+            f"{page} should reference the local SVG favicon"
+        assert '<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">' in content, page
+        assert '<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">' in content, page
+        assert '<link rel="icon" type="image/png" sizes="48x48" href="favicon-48x48.png">' in content, page
+        assert '<link rel="icon" type="image/png" sizes="512x512" href="favicon-512x512.png">' in content, page
+        assert '<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">' in content, page
+
+
+def test_demo_page_title_and_description_reflect_its_demo_nature():
+    content = _read("demo.html")
+    assert "<title>Live Demo Chat — Jantar AI</title>" in content
+    assert "See a live example of the Jantar AI restaurant chat assistant in action." in content
