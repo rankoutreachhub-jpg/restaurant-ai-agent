@@ -203,6 +203,25 @@ try:
 except ValueError:
     SENTRY_TRACES_SAMPLE_RATE = 0.0
 
+# --- API docs gating (Security & Production Hardening Audit finding
+# D1) ---
+# /docs, /redoc, and /openapi.json are FastAPI's own default interactive
+# documentation — reachable by anyone, unauthenticated, with no code
+# change at all. This project's own README explicitly recommends /docs
+# for local interactive testing and even for the Docker walkthrough
+# ("try /docs"), so it stays ENABLED by default — turning it off
+# out-of-the-box would break that already-documented workflow. Set
+# DISABLE_DOCS=true in a real production environment (e.g. Railway) to
+# turn it off there specifically.
+#
+# There is no other "development vs. production" flag anywhere in this
+# codebase to key off instead — SENTRY_ENVIRONMENT above is a free-text
+# label for Sentry's UI only, explicitly documented as cosmetic and
+# never read anywhere else — so this is intentionally its own small,
+# single-purpose switch rather than introducing a broader environment
+# concept this project doesn't otherwise have.
+DISABLE_DOCS = os.getenv("DISABLE_DOCS", "").strip().lower() in ("1", "true", "yes")
+
 
 def validate_config():
     """

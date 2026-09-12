@@ -19,6 +19,7 @@ from .database import SessionLocal
 from .logging_config import configure_logging
 from .monitoring import init_sentry
 from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
+from .security_headers import security_headers_middleware
 from .seed_data import seed_if_empty
 from .widget_cors import widget_cors_middleware
 
@@ -51,11 +52,24 @@ async def lifespan(app: FastAPI):
     yield
 
 
+def _docs_kwargs(disable_docs: bool) -> dict:
+    """FastAPI's docs_url/redoc_url/openapi_url constructor arguments —
+    a plain function (rather than inline in the FastAPI(...) call below)
+    so this gating logic can be unit-tested on its own, independent of
+    constructing a whole app. Passing None to any of these three
+    disables that specific endpoint entirely (see config.DISABLE_DOCS
+    for why the default is "enabled")."""
+    if disable_docs:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {"docs_url": "/docs", "redoc_url": "/redoc", "openapi_url": "/openapi.json"}
+
+
 app = FastAPI(
     title="AI Restaurant Agent",
     description="Stage 1 MVP: Q&A chatbot answering only from restaurant data",
     version="0.1.0",
     lifespan=lifespan,
+    **_docs_kwargs(config.DISABLE_DOCS),
 )
 
 
@@ -85,6 +99,15 @@ app.add_middleware(
 # while every other path still reaches that global middleware unchanged.
 # See app/widget_cors.py's module docstring for the full rationale.
 app.middleware("http")(widget_cors_middleware)
+
+
+# Registered AFTER widget_cors_middleware, making it the new OUTERMOST
+# layer (same reverse-registration-order reasoning as above) — see
+# app/security_headers.py's own module docstring for why that matters
+# (these headers must land even on a response widget_cors_middleware
+# answers directly, without ever reaching a route handler) and for
+# exactly which headers are added and why.
+app.middleware("http")(security_headers_middleware)
 
 
 app.include_router(chat.router)
