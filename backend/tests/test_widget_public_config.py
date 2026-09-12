@@ -2,8 +2,13 @@
 GET /widget/{widget_key}/config (Stage 4 Phase B): the first genuinely
 public, unauthenticated endpoint beyond /chat. Every test here calls it
 with NO headers at all, proving that's sufficient — nothing about it is
-secretly still gated by admin auth or rate limiting.
+secretly still gated by admin auth. It IS rate-limited (Security &
+Production Hardening Audit finding D2, added after this endpoint shipped
+without one) — see the "Rate limiting" section at the end of this file
+for that behavior specifically.
 """
+
+from app.rate_limit import widget_config_rate_limiter
 
 WIDGET_PUBLIC_FIELDS = {
     "widget_key", "restaurant_name", "welcome_message",
@@ -191,3 +196,91 @@ def test_two_restaurants_widgets_never_leak_each_others_data(client, admin_heade
     # Requesting restaurant 1's key can never surface restaurant 2's data.
     assert "Restaurant 2" not in str(response_1)
     assert response_1["widget_key"] != response_2["widget_key"]
+
+
+# --- Rate limiting (Security & Production Hardening Audit finding D2) ---
+
+def test_repeated_config_requests_are_rate_limited(client, admin_headers, second_restaurant):
+    created = _create_widget_config(client, admin_headers, second_restaurant)
+
+    for _ in range(widget_config_rate_limiter.max_requests):
+        response = client.get(_config_url(created["widget_key"]))
+        assert response.status_code == 200
+
+    response = client.get(_config_url(created["widget_key"]))
+    assert response.status_code == 429
+    assert "Retry-After" in response.headers
+
+
+def test_normal_config_requests_still_succeed_under_the_limit(client, admin_headers, second_restaurant):
+    created = _create_widget_config(client, admin_headers, second_restaurant)
+
+    # Comfortably under the limit -- ordinary page-load traffic must
+    # never be affected by this change.
+    for _ in range(3):
+        response = client.get(_config_url(created["widget_key"]))
+        assert response.status_code == 200
+        assert response.json()["widget_key"] == created["widget_key"]
+
+
+def test_rate_limit_is_isolated_across_different_widgets(client, admin_headers, second_restaurant):
+    """One restaurant's traffic exhausting its own budget must never
+    affect a different restaurant's widget -- same isolation property
+    already proven for widget_chat_rate_limiter in test_widget_chat.py."""
+    config_1 = _create_widget_config(client, admin_headers, 1)
+    config_2 = _create_widget_config(client, admin_headers, second_restaurant)
+
+    for _ in range(widget_config_rate_limiter.max_requests):
+        client.get(_config_url(config_1["widget_key"]))
+    assert client.get(_config_url(config_1["widget_key"])).status_code == 429
+
+    # A totally different widget (different restaurant) is unaffected.
+    response = client.get(_config_url(config_2["widget_key"]))
+    assert response.status_code == 200
+
+
+def test_config_rate_limit_is_independent_of_widget_chat_rate_limit(
+    client, admin_headers, second_restaurant, monkeypatch
+):
+    """Exhausting the config endpoint's budget must not affect the same
+    widget's chat budget, and vice versa -- they are deliberately
+    separate RateLimiter instances (see app/rate_limit.py)."""
+    from app import llm as llm_module
+
+    monkeypatch.setattr(llm_module, "generate_reply", lambda **kwargs: "stub reply")
+    created = _create_widget_config(client, admin_headers, second_restaurant)
+
+    for _ in range(widget_config_rate_limiter.max_requests):
+        client.get(_config_url(created["widget_key"]))
+    assert client.get(_config_url(created["widget_key"])).status_code == 429
+
+    # The same widget's chat endpoint is untouched by its config traffic.
+    chat_response = client.post(
+        f"/widget/{created['widget_key']}/chat", json={"message": "hi"}
+    )
+    assert chat_response.status_code == 200
+
+
+def test_widget_cors_behavior_is_unchanged_by_rate_limiting(client, admin_headers, second_restaurant):
+    """The rate limiter must be an additional gate, not a replacement
+    for or change to the existing CORS decision -- an allowed-origin
+    preflight/request still behaves exactly as before, well under the
+    new limit."""
+    origin = "https://example.com"
+    created = _create_widget_config(client, admin_headers, second_restaurant)
+    add_origin_response = client.post(
+        f"/admin/restaurant/{second_restaurant}/widget-config/origins",
+        json={"origin": origin},
+        headers=admin_headers,
+    )
+    assert add_origin_response.status_code == 201
+
+    allowed = client.get(_config_url(created["widget_key"]), headers={"Origin": origin})
+    assert allowed.status_code == 200
+    assert allowed.headers.get("access-control-allow-origin") == origin
+
+    disallowed = client.get(
+        _config_url(created["widget_key"]), headers={"Origin": "https://not-allowed.example.com"}
+    )
+    assert disallowed.status_code == 403
+    assert "access-control-allow-origin" not in disallowed.headers

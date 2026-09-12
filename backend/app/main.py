@@ -7,21 +7,27 @@ Run this with:
 from inside the backend/ folder.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 from starlette.staticfiles import StaticFiles
 
 from . import config
-from .database import SessionLocal
+from .database import SessionLocal, get_db
 from .logging_config import configure_logging
 from .monitoring import init_sentry
 from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
 from .security_headers import security_headers_middleware
 from .seed_data import seed_if_empty
 from .widget_cors import widget_cors_middleware
+
+logger = logging.getLogger(__name__)
 
 # Console + rotating log file for errors and important events (see
 # app/logging_config.py) — set up before anything else logs, so nothing
@@ -134,6 +140,30 @@ app.mount(
 
 
 @app.get("/health")
-def health_check():
-    """Simple endpoint to confirm the API is running."""
+def health_check(db: Session = Depends(get_db)):
+    """
+    Confirms the API process is running AND the database is reachable
+    (Security & Production Hardening Audit finding D6) — a bare process
+    check previously returned "ok" even during a DB outage. Uses the
+    same get_db/SessionLocal session infrastructure as every other
+    route, not a second database-access mechanism, and the session is
+    closed the same way (get_db's own finally block) regardless of
+    outcome, so this can never leak a connection.
+
+    `SELECT 1` is the cheapest possible round-trip — no table access,
+    safe to run on every poll of Railway's frequent HEALTHCHECK. On
+    failure, the full exception is logged server-side only; the
+    response body never includes DATABASE_URL, a driver error message,
+    or any other internal detail that could describe the database
+    itself. A non-2xx status (503) is what makes Docker's own
+    HEALTHCHECK (see the Dockerfile, which polls this exact endpoint
+    with urllib and treats any non-2xx as failed) and Railway's
+    equivalent correctly detect the outage instead of reporting healthy.
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        logger.exception("Health check failed: database not reachable")
+        return JSONResponse(status_code=503, content={"status": "error"})
+
     return {"status": "ok"}

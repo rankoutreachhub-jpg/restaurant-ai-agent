@@ -173,3 +173,19 @@ def _widget_chat_key(request: Request) -> str:
 widget_chat_rate_limiter = RateLimiter(
     max_requests=10, window_seconds=60, name="widget_chat", key_func=_widget_chat_key
 )
+
+# 30 requests/minute per (widget_key, client IP) — the public
+# GET .../widget-config endpoint (app/routers/widget.py) had no rate
+# limiting at all (Security & Production Hardening Audit finding D2).
+# It's comparatively cheap (one DB row lookup, no Gemini call), so it
+# gets a more generous budget than widget_chat_rate_limiter's 10/min,
+# while still bounding unlimited automated probing/scraping. Reuses
+# _widget_chat_key directly — its logic (widget_key from path_params +
+# client IP) is exactly what this route needs too, and the name
+# predating this second use isn't worth a rename just for that. Like
+# every other limiter in this file, this is its OWN independent
+# instance/counter: a burst of config fetches must never eat into a
+# widget's separate chat budget, or vice versa.
+widget_config_rate_limiter = RateLimiter(
+    max_requests=30, window_seconds=60, name="widget_config", key_func=_widget_chat_key
+)

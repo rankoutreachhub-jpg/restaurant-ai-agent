@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from .. import conversations, knowledge, llm, models, schemas
 from ..booking_tool import make_booking_tool_handler
 from ..database import get_db
-from ..rate_limit import widget_chat_rate_limiter
+from ..rate_limit import widget_chat_rate_limiter, widget_config_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,11 @@ def _get_active_widget_config_or_404(db: Session, widget_key: str) -> models.Wid
     return config
 
 
-@router.get("/{widget_key}/config", response_model=schemas.WidgetPublicConfigOut)
+@router.get(
+    "/{widget_key}/config",
+    response_model=schemas.WidgetPublicConfigOut,
+    dependencies=[Depends(widget_config_rate_limiter)],
+)
 def get_public_widget_config(widget_key: str, db: Session = Depends(get_db)):
     config = _get_active_widget_config_or_404(db, widget_key)
     restaurant = config.restaurant
