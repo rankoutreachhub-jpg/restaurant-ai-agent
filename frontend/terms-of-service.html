@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service — Jantar AI</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f2efe9;
+    margin: 0;
+    padding: 24px 16px 60px;
+    color: #222;
+    line-height: 1.6;
+  }
+  #policy-container {
+    width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    overflow: hidden;
+  }
+  header {
+    background: #7a2e2e;
+    color: #fff;
+    padding: 28px 28px 22px;
+  }
+  header h1 {
+    margin: 0 0 6px;
+    font-size: 22px;
+  }
+  header p {
+    margin: 0;
+    font-size: 13px;
+    opacity: 0.9;
+  }
+  main {
+    padding: 8px 28px 32px;
+  }
+  .notice-box {
+    background: #fdf6ec;
+    border: 1px solid #e8d6b8;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 20px 0;
+    font-size: 13.5px;
+    color: #5a4a2a;
+  }
+  h2 {
+    font-size: 17px;
+    color: #7a2e2e;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 6px;
+    margin-top: 34px;
+  }
+  h3 {
+    font-size: 14.5px;
+    color: #333;
+    margin-top: 22px;
+    margin-bottom: 6px;
+  }
+  p, li {
+    font-size: 14.5px;
+    color: #333;
+  }
+  ul {
+    padding-left: 20px;
+    margin: 8px 0;
+  }
+  li { margin-bottom: 6px; }
+  a { color: #7a2e2e; }
+  .placeholder {
+    background: #fff3cd;
+    color: #7a5b00;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-weight: 600;
+    font-size: 0.95em;
+  }
+  footer {
+    padding: 18px 28px 28px;
+    font-size: 12.5px;
+    color: #777;
+    border-top: 1px solid #eee;
+  }
+  @media (max-width: 480px) {
+    header { padding: 22px 18px 18px; }
+    main { padding: 4px 18px 24px; }
+    footer { padding: 16px 18px 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="policy-container">
+  <header>
+    <h1>Terms of Service</h1>
+    <p>Jantar AI</p>
+  </header>
+
+  <main>
+    <p><strong>Effective date:</strong> Not yet formally dated. These terms reflect the platform's
+    practices as of its current early-stage (MVP) release; a specific effective date will be added
+    once the platform reaches general availability.</p>
+
+    <div class="notice-box">
+      These terms describe what the Jantar AI platform actually does today, as an early-stage
+      (MVP) product. Where a feature is planned but not yet available, it is described as such
+      rather than promised. We would rather describe our real practices accurately than promise
+      something not yet in place.
+    </div>
+
+    <h2>1. Service overview</h2>
+    <p>
+      Jantar AI ("the Service") provides restaurants with an AI-powered chat assistant, table
+      booking, and related admin tools. Today the Service includes: AI website chat (answering
+      from a restaurant's own menu, opening hours, location, and FAQ information), an embeddable
+      website chat widget, WhatsApp messaging (where a restaurant has it configured), table
+      booking with automatic capacity checks, optional booking-confirmation emails, and a
+      restaurant admin dashboard. Some capabilities described on the
+      <a href="pricing.html">Pricing page</a> are marked "Coming soon" — these are not yet part
+      of the Service and are not covered by these terms until they are actually released.
+    </p>
+
+    <h2>2. Restaurant responsibilities</h2>
+    <p>A restaurant using the Service is responsible for:</p>
+    <ul>
+      <li>The accuracy of the menu, opening hours, location, FAQ answers, and other information it enters, since the AI assistant answers customers directly from this data.</li>
+      <li>Honoring bookings made through the Service, in the same way it would honor a booking taken by phone or in person.</li>
+      <li>Keeping its admin API key(s) confidential, and letting us know if a key may have been exposed so it can be rotated.</li>
+      <li>Its own additional legal or privacy obligations toward its customers, which this Service does not replace (see also our <a href="privacy-policy.html">Privacy Policy</a>).</li>
+    </ul>
+
+    <h2>3. Customer responsibilities</h2>
+    <p>A customer using the chat, widget, WhatsApp, or booking features is responsible for:</p>
+    <ul>
+      <li>Providing accurate contact and booking details (name, phone, email, party size, date and time).</li>
+      <li>Using the Service for genuine enquiries and bookings, not to abuse, disrupt, or overload it.</li>
+    </ul>
+
+    <h2>4. Account and admin access</h2>
+    <p>
+      There is currently no public self-service sign-up for the admin dashboard. Restaurant admin
+      access is granted directly by the platform operator as a long-lived API key, scoped to one
+      or more specific restaurants. A key can be rotated (invalidating the old one immediately) or
+      deactivated on request. You are responsible for anything done using your key while it is
+      active and not reported as compromised.
+    </p>
+
+    <h2>5. Bookings and restaurant-provided information</h2>
+    <p>
+      Bookings can be made through the website chat, the embeddable widget, WhatsApp (where
+      enabled), or directly by a restaurant's own admin team. Every booking is checked against
+      that restaurant's configured seating capacity for the requested date and time before it is
+      accepted. Jantar AI is not a party to the booking itself — it is an arrangement between the
+      customer and the restaurant — and the AI assistant's replies are generated from whatever
+      menu, hours, and FAQ information the restaurant has entered. We do not independently verify
+      the accuracy of restaurant-provided information.
+    </p>
+
+    <h2>6. Acceptable use</h2>
+    <p>You agree not to:</p>
+    <ul>
+      <li>Attempt to bypass rate limiting, authentication, or other security controls.</li>
+      <li>Scrape, reverse-engineer, or misuse the chat, widget, or admin API beyond normal use.</li>
+      <li>Impersonate another restaurant, customer, or administrator.</li>
+      <li>Use the Service for any unlawful purpose.</li>
+    </ul>
+    <p>We may restrict, rate-limit, or suspend access to protect the Service or other users — see Section 11.</p>
+
+    <h2>7. Third-party services</h2>
+    <p>
+      Operating the Service involves a small number of third-party providers — currently Google
+      (Gemini API, for generating AI chat replies), Meta (WhatsApp Business Platform, where a
+      restaurant has WhatsApp enabled), Resend (for optional booking-confirmation emails), Railway
+      (hosting), and optionally Sentry (error monitoring, off by default). What each one is used
+      for and what data may reach it is described in full in our
+      <a href="privacy-policy.html">Privacy Policy</a>. No payment-processing provider is
+      integrated with the Service yet — see Section 8.
+    </p>
+
+    <h2>8. Fees and payment</h2>
+    <p>
+      Our <a href="pricing.html">Pricing page</a> describes the plans we intend to offer. Automated
+      checkout and payment processing are not implemented yet — no card details or payments are
+      collected through this website. Access to a paid plan today is arranged manually by
+      contacting us at the email address in Section 14. Because no automated payment processing
+      exists, we do not state a refund policy here; one will be added once billing is actually
+      introduced, and these terms will be updated at that point.
+    </p>
+
+    <h2>9. Availability and service limitations</h2>
+    <p>
+      Jantar AI is an early-stage (MVP) product. We do not currently guarantee any particular
+      level of uptime or availability, and features may be added, changed, or removed as the
+      platform develops. Capabilities marked "Coming soon" on the Pricing page are not yet
+      available and are not promised by these terms.
+    </p>
+
+    <h2>10. Intellectual property</h2>
+    <p>
+      Jantar AI and its underlying software remain the property of the platform operator. A
+      restaurant retains ownership of its own content — its name, branding, menu, and any other
+      information it provides to the Service.
+    </p>
+
+    <h2>11. Suspension and termination</h2>
+    <p>
+      We may suspend or terminate access to the Service for a restaurant, admin user, or customer
+      that breaches these terms, misuses the Service, or (once applicable) fails to pay for a paid
+      plan. A restaurant or customer may stop using the Service at any time. Sections that by their
+      nature should continue to apply after termination (such as intellectual property and the
+      limitations described here) remain in effect.
+    </p>
+    <p>
+      The Service is provided on an "as is" basis, without warranties of any kind, consistent with
+      its current early-stage status; our liability is limited to the fullest extent permitted by
+      law.
+    </p>
+
+    <h2>12. Privacy</h2>
+    <p>
+      How personal data is collected and used through the Service is described separately in our
+      <a href="privacy-policy.html">Privacy Policy</a>, which forms part of these terms.
+    </p>
+
+    <h2>13. Changes to these terms</h2>
+    <p>
+      We may update these terms as the platform's practices change — for example, once payment
+      processing is introduced. We encourage you to review this page periodically.
+    </p>
+
+    <h2>14. Contact</h2>
+    <p>
+      Questions about these terms can be sent to:
+      <a href="mailto:rankoutreachhub@gmail.com">rankoutreachhub@gmail.com</a>.
+    </p>
+    <p>
+      Registered business address: Not currently published. Jantar AI is an early-stage (MVP)
+      platform and does not yet have a registered business address or company registration number
+      to disclose here. For any correspondence, please use the contact email above.
+    </p>
+  </main>
+
+  <footer>
+    Jantar AI — Terms of Service. This is an early-stage (MVP) product; terms will be expanded as
+    payment processing and other features described as "Coming soon" are actually introduced.
+  </footer>
+</div>
+
+</body>
+</html>

@@ -1,6 +1,8 @@
 """
 Static-page/link integrity checks for the Jantar AI public pricing page
-(Phase 3 -- frontend/pricing.html) and its link from frontend/index.html.
+(Phase 3 -- frontend/pricing.html) and the Terms of Service page
+(frontend/terms-of-service.html), and their links from
+frontend/index.html and frontend/pricing.html.
 
 frontend/*.html are plain, no-build-step static files with no backend
 dependency (same convention as frontend/privacy-policy.html) -- these
@@ -124,3 +126,90 @@ def test_index_page_links_to_pricing_and_still_links_to_privacy_policy():
     content = _read("index.html")
     assert 'href="pricing.html"' in content
     assert 'href="privacy-policy.html"' in content
+
+
+# --- Terms of Service (frontend/terms-of-service.html) ---
+
+TOS_REQUIRED_SECTIONS = [
+    "Service overview",
+    "Restaurant responsibilities",
+    "Customer responsibilities",
+    "Account and admin access",
+    "Bookings and restaurant-provided information",
+    "Acceptable use",
+    "Third-party services",
+    "Fees and payment",
+    "Availability and service limitations",
+    "Intellectual property",
+    "Suspension and termination",
+    "Privacy",
+    "Contact",
+]
+
+
+def test_terms_of_service_exists_with_jantar_ai_branding():
+    content = _read("terms-of-service.html")
+    assert "<title>" in content
+    assert "Jantar AI" in content
+    assert "Terms of Service" in content
+
+
+def test_terms_of_service_includes_all_required_sections():
+    content = _read("terms-of-service.html")
+    for section in TOS_REQUIRED_SECTIONS:
+        assert section in content, f"expected a section covering {section!r}"
+
+
+def test_terms_of_service_uses_the_existing_contact_email():
+    content = _read("terms-of-service.html")
+    assert 'href="mailto:rankoutreachhub@gmail.com"' in content
+
+
+def test_terms_of_service_links_to_privacy_policy():
+    assert 'href="privacy-policy.html"' in _read("terms-of-service.html")
+
+
+def test_terms_of_service_does_not_invent_legal_identity_details():
+    """No fabricated company registration number, physical address, or
+    DPO -- only the same honest "not currently published" wording
+    established for the Privacy Policy."""
+    content = _read("terms-of-service.html")
+    assert "Not currently published" in content
+    for forbidden in ("Companies House", "Company No.", "Registration No.", "DPO", "Data Protection Officer"):
+        assert forbidden not in content
+
+
+def test_terms_of_service_does_not_claim_payment_processing_or_refunds():
+    """
+    No payment-provider names, card-collection language, or an actual
+    invented refund policy. The page DOES honestly say it does not
+    state a refund policy (since no payment processing exists yet) --
+    that denial is exactly the honesty this task asked for, so it's not
+    banned here; only a concrete, invented refund TERM (a time window or
+    "money back") would be a real problem.
+    """
+    content = _read("terms-of-service.html").lower()
+    for forbidden in (
+        "stripe", "paddle", "lemon squeezy", "lemonsqueezy",
+        "card number", "credit card", "30-day refund", "money back",
+    ):
+        assert forbidden not in content
+    # It must instead say plainly that automated payment isn't implemented yet.
+    assert "not implemented yet" in _read("terms-of-service.html").lower() or \
+           "not implemented" in _read("terms-of-service.html").lower()
+
+
+def test_terms_of_service_does_not_present_coming_soon_features_as_available():
+    """The ToS must not claim any of the pricing page's not-yet-built
+    features (voice, analytics, workflows, etc.) as already available."""
+    content = _read("terms-of-service.html")
+    for feature in UNIMPLEMENTED_FEATURES:
+        assert feature not in content
+
+
+def test_index_and_pricing_pages_link_to_terms_of_service():
+    for page in ("index.html", "pricing.html"):
+        content = _read(page)
+        assert 'href="terms-of-service.html"' in content, f"{page} should link to terms-of-service.html"
+        # Both existing links must still be present alongside the new one.
+        assert 'href="privacy-policy.html"' in content
