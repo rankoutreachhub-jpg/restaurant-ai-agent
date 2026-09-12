@@ -38,6 +38,14 @@ def _chat_url(widget_key):
 
 
 def _create_widget_config(client, admin_headers, restaurant_id, **fields):
+    # The restaurant already has an auto-provisioned (is_active=False)
+    # config the moment it's created (see
+    # routers/platform_admin.py:create_restaurant) -- this call now
+    # UPDATES that row rather than creating a fresh one, so every test
+    # in this file (which is about widget CHAT behavior, and needs a
+    # reachable widget by default) must explicitly re-activate it unless
+    # it's deliberately testing the inactive case.
+    fields.setdefault("is_active", True)
     response = client.post(
         f"/admin/restaurant/{restaurant_id}/widget-config",
         json=fields,

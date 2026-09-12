@@ -8,6 +8,8 @@ public (safe to return to any authorized admin caller) but grants no
 admin privilege of its own.
 """
 
+from app import models
+
 WIDGET_CONFIG_PUBLIC_FIELDS = {
     "id", "restaurant_id", "widget_key", "welcome_message",
     "primary_language", "logo_url", "accent_color",
@@ -77,12 +79,27 @@ def test_unknown_restaurant_returns_404(client, admin_headers):
 
 # --- Create / get ---
 
-def test_get_before_any_config_created_returns_404(client, admin_headers, second_restaurant):
+def _delete_the_auto_provisioned_config(db, restaurant_id):
+    """
+    Every restaurant now gets a default WidgetConfig row automatically
+    on creation (see routers/platform_admin.py:create_restaurant) --
+    this simulates the "no config exists yet" edge case that can no
+    longer happen for a normally-onboarded restaurant, so the
+    still-important defensive 404/create-from-scratch code paths stay
+    covered.
+    """
+    db.query(models.WidgetConfig).filter(models.WidgetConfig.restaurant_id == restaurant_id).delete()
+    db.commit()
+
+
+def test_get_before_any_config_created_returns_404(client, admin_headers, second_restaurant, db):
+    _delete_the_auto_provisioned_config(db, second_restaurant)
     response = client.get(_widget_config_url(second_restaurant), headers=admin_headers)
     assert response.status_code == 404
 
 
-def test_create_widget_config_with_defaults(client, admin_headers, second_restaurant):
+def test_create_widget_config_with_defaults(client, admin_headers, second_restaurant, db):
+    _delete_the_auto_provisioned_config(db, second_restaurant)
     response = client.post(_widget_config_url(second_restaurant), json={}, headers=admin_headers)
     assert response.status_code == 201
     body = response.json()
@@ -90,6 +107,26 @@ def test_create_widget_config_with_defaults(client, admin_headers, second_restau
     assert body["primary_language"] == "en-GB"
     assert body["booking_enabled"] is True
     assert body["is_active"] is True
+
+
+def test_new_restaurant_is_auto_provisioned_with_an_inactive_default_widget_config(
+    client, admin_headers, second_restaurant
+):
+    """The actual new behavior: second_restaurant already has a
+    WidgetConfig the moment it's created, safely inactive until the
+    restaurant admin configures and activates it."""
+    response = client.get(_widget_config_url(second_restaurant), headers=admin_headers)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["restaurant_id"] == second_restaurant
+    assert body["is_active"] is False
+    assert body["primary_language"] == "en-GB"
+    assert body["booking_enabled"] is True
+    assert body["welcome_message"] is None
+    assert body["logo_url"] is None
+    assert body["accent_color"] is None
+    assert isinstance(body["widget_key"], str) and len(body["widget_key"]) > 10
+    assert body["allowed_origins"] == []
     assert body["welcome_message"] is None
     assert body["logo_url"] is None
     assert body["accent_color"] is None
@@ -178,6 +215,12 @@ def test_widget_key_at_the_database_level_is_unique(client, admin_headers, db):
 
     restaurant_a = _onboard("Widget Key Uniqueness Test A", "widget-key-test-a@example.com")
     restaurant_b = _onboard("Widget Key Uniqueness Test B", "widget-key-test-b@example.com")
+
+    # Each restaurant is auto-provisioned with its own WidgetConfig on
+    # creation now -- cleared here so the inserts below are isolated to
+    # the widget_key unique constraint being tested, not restaurant_id's.
+    _delete_the_auto_provisioned_config(db, restaurant_a)
+    _delete_the_auto_provisioned_config(db, restaurant_b)
 
     db.add(models.WidgetConfig(restaurant_id=restaurant_a, widget_key="wgt_duplicate_test_value"))
     db.commit()

@@ -16,6 +16,7 @@ import logging
 from sqlalchemy.orm import Session
 from . import models
 from .subscriptions import create_subscription_for_restaurant
+from .widget_keys import generate_widget_key
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,18 @@ def seed_if_empty(db: Session):
     # created after that migration ran) -- the seeded demo restaurant
     # is no exception.
     create_subscription_for_restaurant(db, restaurant)
+
+    # Onboarding hardening: every restaurant must also have exactly one
+    # WidgetConfig row -- see routers/platform_admin.py:create_restaurant
+    # for the full rationale (is_active=False until the restaurant admin
+    # configures and activates it; every other field left at the
+    # model's own defaults, no invented branding).
+    db.add(models.WidgetConfig(
+        restaurant_id=restaurant.id,
+        widget_key=generate_widget_key(),
+        is_active=False,
+    ))
+    db.commit()
 
     # --- Opening hours ---
     hours_data = [

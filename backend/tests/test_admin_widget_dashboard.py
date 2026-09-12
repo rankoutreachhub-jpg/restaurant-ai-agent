@@ -36,7 +36,7 @@ sync_playwright = playwright_sync_api.sync_playwright
 
 import uvicorn
 
-from app import config
+from app import config, models
 from app.main import app as fastapi_app
 
 CHROMIUM_EXECUTABLE_PATH = "/opt/pw-browsers/chromium-1194/chrome-linux/chrome"
@@ -150,6 +150,18 @@ def _create_widget_via_api(client, admin_headers, restaurant_id, **fields):
     return response.json()
 
 
+def _delete_the_auto_provisioned_config(db, restaurant_id):
+    """
+    Every restaurant now gets a default WidgetConfig row automatically on
+    creation (see routers/platform_admin.py:create_restaurant) -- this
+    simulates the "no config exists yet" edge case that can no longer
+    happen for a normally-onboarded restaurant, so the dashboard's
+    still-important "no widget yet" empty state stays covered.
+    """
+    db.query(models.WidgetConfig).filter(models.WidgetConfig.restaurant_id == restaurant_id).delete()
+    db.commit()
+
+
 WELCOME_INPUT = "#widget-welcome-message"
 LANGUAGE_INPUT = "input[name='primary_language']"
 LOGO_INPUT = "input[name='logo_url']"
@@ -163,8 +175,9 @@ SAVE_FEEDBACK = "#widget-save-feedback"
 # --- Load / create ---
 
 def test_widget_tab_shows_create_state_when_no_config_exists(
-    client, admin_headers, second_restaurant, api_server, admin_page_server, page
+    client, admin_headers, second_restaurant, db, api_server, admin_page_server, page
 ):
+    _delete_the_auto_provisioned_config(db, second_restaurant)
     _sign_in(page, admin_page_server, admin_headers["X-Admin-API-Key"])
     _select_restaurant(page, second_restaurant)
     _open_widget_tab(page)
@@ -174,8 +187,9 @@ def test_widget_tab_shows_create_state_when_no_config_exists(
 
 
 def test_create_widget_from_dashboard(
-    client, admin_headers, second_restaurant, api_server, admin_page_server, page
+    client, admin_headers, second_restaurant, db, api_server, admin_page_server, page
 ):
+    _delete_the_auto_provisioned_config(db, second_restaurant)
     _sign_in(page, admin_page_server, admin_headers["X-Admin-API-Key"])
     _select_restaurant(page, second_restaurant)
     _open_widget_tab(page)
@@ -184,6 +198,26 @@ def test_create_widget_from_dashboard(
     page.wait_for_selector("#widget-settings-form", state="visible", timeout=5000)
     assert ".status-pill.on" in page.locator(".status-pill").first.get_attribute("class") or True
     assert page.locator(".status-pill").first.inner_text() == "Active"
+    assert page.locator(".status-pill").nth(1).inner_text() == "Booking enabled"
+
+
+def test_widget_tab_shows_the_auto_provisioned_config_for_a_freshly_onboarded_restaurant(
+    client, admin_headers, second_restaurant, api_server, admin_page_server, page
+):
+    """
+    The actual new default: a freshly onboarded restaurant already has a
+    WidgetConfig row (see routers/platform_admin.py:create_restaurant), so
+    the dashboard should show the settings form immediately -- with the
+    widget safely Inactive until the restaurant admin turns it on -- not
+    the create-state button from the old (pre-auto-provisioning) flow.
+    """
+    _sign_in(page, admin_page_server, admin_headers["X-Admin-API-Key"])
+    _select_restaurant(page, second_restaurant)
+    _open_widget_tab(page)
+
+    assert page.locator("#widget-settings-form").is_visible()
+    assert page.locator("#create-widget-btn").count() == 0
+    assert page.locator(".status-pill").first.inner_text() == "Inactive"
     assert page.locator(".status-pill").nth(1).inner_text() == "Booking enabled"
 
 
@@ -389,7 +423,13 @@ def test_preview_renders_a_real_working_widget_when_preview_origin_is_configured
     client, admin_headers, second_restaurant, api_server, admin_page_server, page, monkeypatch
 ):
     monkeypatch.setattr(config, "WIDGET_PREVIEW_ORIGIN", admin_page_server)
-    _create_widget_via_api(client, admin_headers, second_restaurant, welcome_message="Preview me!")
+    # second_restaurant already has an auto-provisioned (is_active=False)
+    # config -- this call now UPDATES that row rather than creating a
+    # fresh one, so is_active must be set explicitly or it stays False
+    # and the preview widget 404s instead of rendering.
+    _create_widget_via_api(
+        client, admin_headers, second_restaurant, welcome_message="Preview me!", is_active=True
+    )
 
     _sign_in(page, admin_page_server, admin_headers["X-Admin-API-Key"])
     _select_restaurant(page, second_restaurant)

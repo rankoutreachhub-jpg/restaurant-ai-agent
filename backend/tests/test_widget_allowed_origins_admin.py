@@ -32,6 +32,18 @@ def _ensure_widget_config(client, admin_headers, restaurant_id):
     return response.json()
 
 
+def _delete_the_auto_provisioned_config(db, restaurant_id):
+    """
+    Every restaurant now gets a default WidgetConfig row automatically on
+    creation (see routers/platform_admin.py:create_restaurant) -- this
+    simulates the "no config exists yet" edge case that can no longer
+    happen for a normally-onboarded restaurant, so the still-important
+    defensive 404 code path stays covered.
+    """
+    db.query(models.WidgetConfig).filter(models.WidgetConfig.restaurant_id == restaurant_id).delete()
+    db.commit()
+
+
 # --- Auth ---
 
 def test_post_origin_requires_a_key_at_all(client):
@@ -95,8 +107,9 @@ def test_unknown_restaurant_returns_404(client, admin_headers):
 # --- No widget config yet ---
 
 def test_adding_an_origin_before_any_widget_config_exists_returns_404(
-    client, admin_headers, second_restaurant
+    client, admin_headers, second_restaurant, db
 ):
+    _delete_the_auto_provisioned_config(db, second_restaurant)
     response = client.post(
         _origins_url(second_restaurant),
         json={"origin": "https://example.com"},

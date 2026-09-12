@@ -27,6 +27,7 @@ from ..auth import AdminIdentity, require_superadmin
 from ..database import get_db
 from ..rate_limit import admin_rate_limiter
 from ..subscriptions import create_subscription_for_restaurant
+from ..widget_keys import generate_widget_key
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,30 @@ def create_restaurant(data: schemas.RestaurantCreate, db: Session = Depends(get_
     # transaction as the restaurant itself, so either both are
     # committed together or neither is.
     create_subscription_for_restaurant(db, restaurant, commit=False)
+
+    # Onboarding hardening: every restaurant must also have exactly one
+    # WidgetConfig row from the moment it's created, mirroring the
+    # Subscription treatment above — same "commit=False, same
+    # transaction" reasoning, so a restaurant can never end up with one
+    # but not the other. is_active is explicitly False (overriding the
+    # model's own default of True): widget_cors_middleware only blocks
+    # *browser* cross-origin requests missing from WidgetAllowedOrigin
+    # (see that module's docstring — a request with no Origin header,
+    # e.g. curl or server-to-server, passes through untouched), so an
+    # active-by-default widget_key would already be a fully working
+    # public chat/booking endpoint the instant it's generated, before
+    # the restaurant has configured anything. Every other field is left
+    # unset so the model's own column defaults apply (primary_language
+    # "en-GB", booking_enabled True) — no restaurant-specific branding
+    # (welcome_message/logo_url/accent_color) is invented here; the
+    # restaurant admin sets those from the existing Widget tab, whose
+    # is_active checkbox already lets them flip this on when ready.
+    widget_config = models.WidgetConfig(
+        restaurant_id=restaurant.id,
+        widget_key=generate_widget_key(),
+        is_active=False,
+    )
+    db.add(widget_config)
 
     db.commit()
     db.refresh(restaurant)

@@ -128,6 +128,13 @@ def page(browser):
 
 
 def _create_widget(client, admin_headers, restaurant_id, allowed_origins=None, **config_fields):
+    # The restaurant already has an auto-provisioned (is_active=False)
+    # config the moment it's created (see
+    # routers/platform_admin.py:create_restaurant) -- this call now
+    # UPDATES that row rather than creating a fresh one, so these
+    # real-browser tests (which need a reachable widget) must explicitly
+    # re-activate it unless deliberately testing the inactive case.
+    config_fields.setdefault("is_active", True)
     response = client.post(
         f"/admin/restaurant/{restaurant_id}/widget-config", json=config_fields, headers=admin_headers
     )
