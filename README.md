@@ -1049,3 +1049,194 @@ uvicorn app.main:app --reload
   database-enforced guarantee. PostgreSQL supports `EXCLUDE` constraints
   (via the `btree_gist` extension) that could make this atomic — a
   worthwhile follow-up, deliberately not bundled into this change.
+
+---
+
+## 13. PostgreSQL Disaster Recovery
+
+A practical runbook for backing up and recovering the production
+database, built around the existing `railway_pg_backup_restore_test.ps1`
+script at the repo root (never modify that file — see "Important safety
+rules" below).
+
+### Current production database
+
+- Production runs on **Railway PostgreSQL**.
+- **The current Railway plan has no managed automated backups or
+  point-in-time recovery (PITR).** Nothing about this can be turned on
+  from this repository — it's a Railway plan/service setting. Until
+  it's confirmed otherwise, treat backups as **entirely manual and
+  operator-driven** (see "Current gaps").
+- `DATABASE_URL` (the production connection string) is stored as a
+  Railway environment variable/secret. It must **never** be printed,
+  logged, committed, or pasted into a chat/AI session — treat it exactly
+  like `ADMIN_API_KEY`/`GEMINI_API_KEY` (see "Admin authentication"
+  above).
+
+### Manual backup procedure
+
+**Preconditions:**
+- Docker Desktop installed and running, on your **own machine** — not
+  a cloud sandbox or CI runner (the script's own header says so
+  explicitly; it also isn't meant to run inside this project's CI).
+- Railway dashboard access, to copy the Postgres service's **external/
+  public** connection string (Connect tab) — not the internal
+  `*.railway.internal` one, which isn't reachable from outside Railway's
+  network.
+
+**Required environment variable** (set in the same PowerShell session
+you'll run the script from, never written to a file):
+```powershell
+$env:RAILWAY_PROD_DATABASE_URL = "postgresql://user:pass@host:port/dbname"
+```
+
+**Running the backup:**
+```powershell
+.\railway_pg_backup_restore_test.ps1
+```
+This performs a **read-only** `pg_dump` against production, restores
+the dump into a disposable local Docker container, and prints
+side-by-side row counts so you can confirm the backup is complete and
+correct (see "Backup verification" below). It does not modify
+production in any way.
+
+**Where backup artifacts are stored:** on your own machine, under
+`%USERPROFILE%\pg_backups\restaurant-ai-agent\` — outside this
+repository entirely, so they can never end up staged or committed by
+accident. Each run creates a timestamped `railway_backup_<timestamp>.dump`
+plus a matching `.objects.txt` listing.
+
+**How to verify the backup completed:** the script prints the backup
+file path and size ("Backup created: ... bytes") once `pg_dump` finishes
+successfully, and fails loudly (`throw`) if `pg_dump` errors or the
+expected file doesn't appear — there is no silent partial-success case.
+
+### Backup verification
+
+- The script restores the dump into a **separate, disposable, local**
+  Docker container (`raia_scratch_restore_db`), never into production,
+  and then prints matching row-count/foreign-key tables for production
+  vs. the restored copy so you can compare them by eye.
+- Production is queried read-only for this comparison, wrapped in
+  `BEGIN; SET TRANSACTION READ ONLY; ...; ROLLBACK;` — even a mistake in
+  the query can't write to production.
+- Confirm the restore is correct by comparing the two printed tables:
+  per-table row counts, the `alembic_version` value, and the
+  foreign-key counts should all match exactly.
+- Once satisfied, remove only the scratch container with:
+  ```powershell
+  .\railway_pg_backup_restore_test.ps1 -Cleanup
+  ```
+  This never touches production and never deletes the backup file
+  itself — remove that manually if/when you no longer need it.
+
+### Disaster recovery procedure
+
+If the production database is lost, corrupted, or otherwise
+unrecoverable in place:
+
+1. **Get the most recent good backup.** Either use one already produced
+   by the manual procedure above, or run it now against whatever is
+   still reachable (if production is only partially degraded).
+2. **Provision a replacement PostgreSQL database** (a new Railway
+   Postgres service, or another instance) — do not attempt to restore
+   into the broken instance if it can be avoided.
+3. **Restore the backup into the replacement database**, not the
+   scratch container this time. Set the replacement connection string
+   as an environment variable first — **never paste a real
+   `DATABASE_URL` containing credentials into shared documentation, a
+   chat/AI session, or anywhere it would land in shell history you
+   don't control**; prefer setting it directly in your own local
+   session rather than typing it inline in a command:
+   ```powershell
+   $env:REPLACEMENT_DATABASE_URL = "<set securely in your local PowerShell session>"
+
+   docker run --rm -v "$env:USERPROFILE\pg_backups\restaurant-ai-agent:/backup" `
+     postgres:16-alpine `
+     pg_restore --no-owner --no-privileges --verbose `
+       --dbname="$env:REPLACEMENT_DATABASE_URL" `
+       "/backup/railway_backup_<timestamp>.dump"
+   ```
+4. **Run Alembic migrations carefully** against the replacement database
+   — do not assume the backup already reflects `alembic upgrade head`.
+   Reuse the same environment variable rather than retyping the
+   connection string:
+   ```powershell
+   $env:DATABASE_URL = $env:REPLACEMENT_DATABASE_URL
+   alembic current   # check what the restored DB thinks its version is
+   alembic upgrade head
+   ```
+5. **Update the production `DATABASE_URL`** in Railway's dashboard to
+   point at the replacement database — set it directly in Railway's own
+   environment-variable UI, never by pasting it into a document, ticket,
+   or chat message first.
+6. **Redeploy/restart the backend** on Railway so it picks up the new
+   `DATABASE_URL`.
+7. **Verify `/health`** responds `{"status": "ok"}` (this now includes a
+   real database connectivity check — see app/main.py).
+8. **Verify admin access** against the replacement database. Set the
+   real admin key in your own local session first — do not write it
+   directly into the command, and never commit it, paste it into this
+   README, or let it appear in logs/chat:
+   ```powershell
+   $env:ADMIN_API_KEY = "<set securely in your local PowerShell session>"
+
+   Invoke-RestMethod https://<production-url>/admin/restaurant/1 `
+     -Headers @{ "X-Admin-API-Key" = $env:ADMIN_API_KEY }
+   ```
+9. **Verify chat** — send a real message through `/chat` or a
+   restaurant's widget and confirm a real, data-grounded reply comes
+   back (not an error).
+10. **Verify booking** — create one real test booking through the admin
+    API or chat and confirm it's created and appears back in the admin
+    bookings list.
+11. **Verify the booking confirmation email** — confirm the test
+    booking's confirmation email actually arrives (only meaningful if
+    `RESEND_API_KEY`/`EMAIL_FROM` are configured; if they aren't, the
+    booking should still succeed without one — see "Table bookings"
+    above).
+
+### Important safety rules
+
+- **Never restore directly over production** without an explicit,
+  deliberate recovery decision — every restore in the routine backup
+  procedure targets a disposable scratch database, never production.
+- **Never expose `DATABASE_URL`** — don't print it, log it, paste it
+  into a chat/AI session, a document, or a ticket, or commit it
+  anywhere. Prefer setting it directly in an environment/session (your
+  own shell, or Railway's own environment-variable UI) over typing it
+  inline in a command.
+- **Never commit `.dump`/`.sql` backup files** — they belong on the
+  operator's own machine, outside this repository, never staged.
+- **Never modify `railway_pg_backup_restore_test.ps1`** as part of a
+  recovery — if it needs a genuine change, that's a separate, deliberate
+  task with its own review, not something to edit under incident
+  pressure.
+
+### Recovery checklist
+
+- [ ] A recent backup is available and its file size/objects list look reasonable
+- [ ] The backup has been restore-verified (row counts/foreign-key counts match production)
+- [ ] The replacement PostgreSQL database is provisioned and reachable
+- [ ] The backup has been restored into the replacement database
+- [ ] `alembic upgrade head` has been run against the replacement database
+- [ ] Railway's `DATABASE_URL` has been updated to the replacement database
+- [ ] The backend has been redeployed/restarted
+- [ ] `/health` returns `{"status": "ok"}`
+- [ ] Admin access works against the replacement database
+- [ ] Chat returns a real, data-grounded reply
+- [ ] A test booking can be created and appears in the admin bookings list
+- [ ] The booking confirmation email arrives (if configured)
+
+### Current gaps
+
+- **No Railway-managed automated backups or PITR on the current plan.**
+  This is a Railway plan/service setting, not something this repository
+  configures — confirm directly in the Railway dashboard if this ever
+  changes.
+- **No automatic external backup scheduler yet.** The only backup
+  mechanism today is the manual script above, run on demand by an
+  operator — nothing runs it on a schedule.
+- **Recovery is currently entirely operator-driven** — there is no
+  automated failover or restore trigger; every step above is a manual
+  decision and action by whoever is responding to the incident.
