@@ -32,6 +32,43 @@ jobs:
         working-directory: backend
         run: pytest -v
 
+  dependency-audit:
+    name: Scan Python dependencies for known vulnerabilities
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
+
+      - name: Install project dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install pip-audit
+        run: pip install pip-audit==2.10.1
+
+      # Fails the job (non-zero exit) the moment pip-audit reports a real,
+      # known vulnerability (queried live against the PyPI/OSV advisory
+      # databases) in any pinned dependency — see backend/requirements.txt
+      # and backend/requirements-dev.txt (Security & Production Hardening
+      # Audit findings D3/D4). No unrelated services (Docker, Postgres)
+      # needed for this job, so a vulnerability finding here is never
+      # confused with an unrelated infrastructure flake.
+      - name: Audit Python dependencies for known vulnerabilities
+        working-directory: backend
+        run: pip-audit -r requirements.txt -r requirements-dev.txt
+
   postgres-migrations:
     name: Verify Alembic migrations against PostgreSQL
     runs-on: ubuntu-latest
