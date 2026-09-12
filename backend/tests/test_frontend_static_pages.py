@@ -1,8 +1,10 @@
 """
 Static-page/link integrity checks for the Jantar AI public pricing page
-(Phase 3 -- frontend/pricing.html) and the Terms of Service page
-(frontend/terms-of-service.html), and their links from
-frontend/index.html and frontend/pricing.html.
+(Phase 3 -- frontend/pricing.html), the Terms of Service page
+(frontend/terms-of-service.html), the Jantar AI public homepage
+(frontend/index.html), and the live chat demo page
+(frontend/demo.html) it links to, plus the cross-links between all of
+these.
 
 frontend/*.html are plain, no-build-step static files with no backend
 dependency (same convention as frontend/privacy-policy.html) -- these
@@ -13,6 +15,8 @@ enforcement is implemented anywhere in this codebase yet; several
 assertions below exist specifically to keep this honest.
 """
 
+import json
+import re
 from pathlib import Path
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
@@ -213,3 +217,172 @@ def test_index_and_pricing_pages_link_to_terms_of_service():
         assert 'href="terms-of-service.html"' in content, f"{page} should link to terms-of-service.html"
         # Both existing links must still be present alongside the new one.
         assert 'href="privacy-policy.html"' in content
+
+
+# --- Jantar AI public homepage (frontend/index.html) ---
+
+HOMEPAGE_REQUIRED_SECTIONS = [
+    "How it works",
+    "Features",
+    "See it in action",
+    "Pricing preview",
+    "Coming soon",
+    "Get started",
+]
+
+HOMEPAGE_REAL_FEATURES = [
+    "AI website chat",
+    "Menu, hours &amp; FAQ answering",
+    "Embeddable chat widget",
+    "Table booking with capacity checks",
+    "Booking confirmation email",
+    "WhatsApp channel",
+    "Admin dashboard",
+    "Conversation history",
+]
+
+HOMEPAGE_COMING_SOON_FEATURES = [
+    "AI voice receptionist",
+    "Analytics",
+    "Lead capture",
+    "Custom restaurant knowledge",
+    "Multi-language responses",
+    "Custom workflows",
+    "Future integrations",
+]
+
+
+def test_homepage_has_jantar_ai_branding_and_correct_title():
+    content = _read("index.html")
+    assert "<title>Jantar AI — AI Chat &amp; Table Booking for Restaurants</title>" in content
+    assert "Jantar AI" in content
+
+
+def test_homepage_has_exactly_one_h1_with_the_approved_wording():
+    content = _read("index.html")
+    assert content.count("<h1>") == 1
+    assert "AI chat and table bookings for your restaurant" in content
+
+
+def test_homepage_has_the_approved_meta_description():
+    content = _read("index.html")
+    assert (
+        '<meta name="description" content="Jantar AI gives restaurants an AI chat assistant '
+        'for their website and WhatsApp, with automatic table booking and an admin dashboard. '
+        'See plans and pricing.">'
+    ) in content
+
+
+def test_homepage_is_indexable():
+    assert '<meta name="robots" content="index, follow">' in _read("index.html")
+
+
+def test_homepage_does_not_yet_have_canonical_or_og_url():
+    """jantarai.com is not connected yet -- per the approved SEO audit,
+    these must wait rather than point at a domain that isn't live."""
+    content = _read("index.html")
+    assert 'rel="canonical"' not in content
+    assert "og:url" not in content
+
+
+def test_homepage_has_open_graph_text_fields_but_no_invented_image():
+    content = _read("index.html")
+    assert 'property="og:title"' in content
+    assert 'property="og:description"' in content
+    assert 'property="og:type"' in content
+    assert "og:image" not in content
+
+
+def test_homepage_has_valid_organization_json_ld_with_only_verified_facts():
+    content = _read("index.html")
+    match = re.search(r'<script type="application/ld\+json">(.*?)</script>', content, re.S)
+    assert match, "expected a JSON-LD script block on the homepage"
+    data = json.loads(match.group(1))
+    assert data["@type"] == "Organization"
+    assert data["name"] == "Jantar AI"
+    assert data["email"] == "rankoutreachhub@gmail.com"
+    # No invented address, phone, logo, social profiles, or founding date.
+    for forbidden_key in ("address", "telephone", "logo", "sameAs", "foundingDate", "url"):
+        assert forbidden_key not in data
+
+
+def test_homepage_includes_all_required_sections_in_order():
+    content = _read("index.html")
+    positions = []
+    for section in HOMEPAGE_REQUIRED_SECTIONS:
+        assert section in content, f"expected a section covering {section!r}"
+        positions.append(content.index(section))
+    assert positions == sorted(positions), "homepage sections are out of the approved order"
+
+
+def test_homepage_lists_only_real_features_without_coming_soon_tags():
+    content = _read("index.html")
+    for feature in HOMEPAGE_REAL_FEATURES:
+        assert feature in content, f"expected real feature {feature!r} on the homepage"
+        idx = content.index(feature)
+        nearby = content[idx: idx + len(feature) + 80]
+        assert "Coming soon" not in nearby, f"{feature!r} incorrectly tagged Coming soon"
+
+
+def test_homepage_coming_soon_section_tags_every_unavailable_feature():
+    content = _read("index.html")
+    for feature in HOMEPAGE_COMING_SOON_FEATURES:
+        assert feature in content, f"expected {feature!r} in the homepage's Coming soon section"
+    assert content.count("Coming soon") >= len(HOMEPAGE_COMING_SOON_FEATURES)
+
+
+def test_homepage_has_no_fabricated_claims_or_social_proof():
+    content = _read("index.html").lower()
+    for forbidden in (
+        "testimonial", "trusted by", "customers love", "5 stars",
+        "rated #1", "as seen on", "★★★★★", "free trial", "sign up free",
+        "pos integration", "point of sale", "money back", "guarantee",
+    ):
+        assert forbidden not in content
+
+
+def test_homepage_has_no_payment_provider_or_fake_checkout():
+    content = _read("index.html").lower()
+    for forbidden in ("stripe", "paddle", "lemon squeezy", "lemonsqueezy", "card number", "credit card"):
+        assert forbidden not in content
+    assert "<form" not in content
+
+
+def test_homepage_ctas_and_links_are_correct():
+    content = _read("index.html")
+    for href in (
+        'href="pricing.html"', 'href="demo.html"',
+        'href="terms-of-service.html"', 'href="privacy-policy.html"',
+    ):
+        assert href in content
+    assert content.count('href="mailto:rankoutreachhub@gmail.com') >= 1
+
+
+# --- Live chat demo page (frontend/demo.html) ---
+
+def test_demo_page_exists_and_preserves_chat_mechanics():
+    """The move from index.html to demo.html must not touch the working
+    chat mechanics: message list, input, send button, header, typing
+    indicator, live API connection, and restaurant_id."""
+    content = _read("demo.html")
+    for expected in (
+        'id="messages"', 'id="user-input"', 'id="send-btn"', 'id="chat-header"',
+        "The Kings Arms", "Typing...",
+        'const API_URL = "https://restaurant-ai-agent-production-834f.up.railway.app/chat"',
+        "restaurant_id: 1",
+    ):
+        assert expected in content, f"expected {expected!r} to survive the move to demo.html"
+
+
+def test_demo_page_has_the_honest_demo_banner():
+    content = _read("demo.html")
+    assert (
+        "This is a live demo of the Jantar AI chat assistant, "
+        "shown here for an example restaurant."
+    ) in content
+
+
+def test_demo_page_links_back_to_homepage_and_other_pages():
+    content = _read("demo.html")
+    for href in ('href="index.html"', 'href="pricing.html"', 'href="privacy-policy.html"', 'href="terms-of-service.html"'):
+        assert href in content
