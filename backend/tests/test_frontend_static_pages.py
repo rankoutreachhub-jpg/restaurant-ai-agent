@@ -517,6 +517,43 @@ def test_no_invented_og_image_anywhere():
         assert "twitter:image" not in _read(page), page
 
 
+# --- robots.txt (safe-now SEO cleanup) ---
+
+def test_robots_txt_exists_and_applies_to_every_crawler():
+    content = _read("robots.txt")
+    assert "User-agent: *" in content
+
+
+def test_robots_txt_disallows_admin_html():
+    assert "Disallow: /admin.html" in _read("robots.txt")
+
+
+def test_robots_txt_does_not_block_public_pages():
+    """Only admin.html is disallowed -- the homepage, pricing, demo,
+    Terms, and Privacy pages (and the site root) must remain crawlable,
+    matching each page's own <meta name="robots"> directive tested
+    above (all "index, follow" or "noindex, follow", never blocked at
+    the robots.txt level)."""
+    content = _read("robots.txt")
+    disallowed_paths = [
+        line.split(":", 1)[1].strip()
+        for line in content.splitlines()
+        if line.strip().lower().startswith("disallow:")
+    ]
+    assert disallowed_paths == ["/admin.html"]
+    for public_path in ("/", "/index.html", "/pricing.html", "/demo.html",
+                         "/terms-of-service.html", "/privacy-policy.html"):
+        assert public_path not in disallowed_paths
+
+
+def test_robots_txt_has_no_sitemap_directive_yet():
+    """jantarai.com is not connected yet -- a Sitemap: line (and
+    sitemap.xml itself) must wait, per the same "don't invent a
+    not-yet-live domain" discipline as canonical/og:url above, rather
+    than point crawlers at a domain that isn't live."""
+    assert "Sitemap:" not in _read("robots.txt")
+
+
 def test_privacy_policy_footer_links_are_fixed():
     """Regression test for the SEO audit's biggest internal-linking
     gap: privacy-policy.html previously linked to nothing at all."""
