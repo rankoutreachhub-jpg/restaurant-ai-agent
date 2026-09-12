@@ -221,6 +221,17 @@
     margin: 6px 0;
     font-size: 12px;
   }
+  .key-reveal p { margin: 6px 0; }
+  .key-reveal button {
+    background: #7a2e2e;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .key-reveal .muted { margin-left: 8px; }
   .thread { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
   .msg { max-width: 75%; padding: 8px 12px; border-radius: 10px; font-size: 13px; margin-bottom: 8px; white-space: pre-wrap; }
   .msg.user { background: #7a2e2e; color: #fff; margin-left: auto; }
@@ -1277,7 +1288,7 @@ async function loadPlatformTab() {
     <div class="card">
       <h2>Admin users (restaurant-scoped keys)</h2>
       <table>
-        <thead><tr><th>#</th><th>Label</th><th>Status</th><th>Restaurants</th><th></th><th>Access</th></tr></thead>
+        <thead><tr><th>#</th><th>Label</th><th>Status</th><th>Restaurant(s)</th><th>Actions</th><th>Access</th></tr></thead>
         <tbody>${adminUserRows || "<tr><td colspan='6' class='muted'>No admin users yet.</td></tr>"}</tbody>
       </table>
       <h2>Create admin user</h2>
@@ -1318,14 +1329,60 @@ async function loadPlatformTab() {
   };
 }
 
+// Clipboard API where available (requires a secure context: HTTPS or
+// localhost), falling back to the older execCommand("copy") approach
+// via a temporary offscreen textarea otherwise. Returns whether the
+// copy actually succeeded, so the caller can tell the user if it
+// didn't and they need to copy the key manually instead.
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (e) {
+      // Fall through to the fallback below.
+    }
+  }
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const successful = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return successful;
+  } catch (e) {
+    return false;
+  }
+}
+
 function showKeyReveal(apiKey, heading) {
   const slot = document.getElementById("key-reveal-slot");
   if (!slot) return;
   slot.innerHTML = `
     <div class="key-reveal">
-      <strong>${escapeHtml(heading)}</strong> — copy this key now. It will not be shown again.
-      <code>${escapeHtml(apiKey)}</code>
+      <strong>${escapeHtml(heading)}</strong>
+      <p>Copy this key now — it will not be shown again.</p>
+      <code id="key-reveal-code">${escapeHtml(apiKey)}</code>
+      <button type="button" id="copy-key-reveal-btn">Copy key</button>
+      <span id="key-reveal-copy-status" class="muted" aria-live="polite"></span>
+      <p class="muted">
+        Send this one-time key securely to the restaurant owner — they'll use it to sign in to
+        the Jantar AI admin dashboard. Avoid sending it over public or unencrypted channels
+        (for example, a public chat channel, plain SMS, or social media).
+      </p>
     </div>`;
+
+  document.getElementById("copy-key-reveal-btn").onclick = async () => {
+    const statusEl = document.getElementById("key-reveal-copy-status");
+    const ok = await copyTextToClipboard(apiKey);
+    if (statusEl) {
+      statusEl.textContent = ok ? "Copied to clipboard." : "Could not copy automatically — please select and copy it manually.";
+    }
+  };
 }
 
 function toggleOnboardingDetails(restaurantId) {

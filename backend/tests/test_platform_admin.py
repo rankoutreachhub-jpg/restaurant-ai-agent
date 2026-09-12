@@ -120,6 +120,67 @@ def test_admin_user_key_returned_once_and_never_retrievable_again(
     assert plaintext_key not in str(list_all.json())
 
 
+def test_plaintext_key_never_persisted_in_the_database(client, second_restaurant, admin_headers):
+    """
+    Safer admin-access delivery: only key_id and key_hash ever get
+    stored (see app/admin_keys.py) -- the plaintext key handed back in
+    the creation response must never appear, in whole or in its secret
+    half, anywhere on the persisted AdminUser row.
+    """
+    from app import models
+    from app.database import SessionLocal
+
+    created = client.post(
+        "/admin/platform/admin-users",
+        json={"label": "db persistence test", "restaurant_ids": [second_restaurant]},
+        headers=admin_headers,
+    ).json()
+    plaintext_key = created["api_key"]
+    secret = plaintext_key.split(".", 1)[1]
+
+    session = SessionLocal()
+    try:
+        admin_user = session.query(models.AdminUser).filter(models.AdminUser.id == created["id"]).one()
+        assert admin_user.key_hash != secret
+        assert secret not in admin_user.key_hash
+        assert plaintext_key not in admin_user.key_hash
+        assert plaintext_key not in admin_user.key_id
+    finally:
+        session.close()
+
+
+def test_plaintext_key_is_never_logged(client, second_restaurant, admin_headers, caplog):
+    """
+    Creation and rotation both log key_id (a non-secret lookup handle)
+    for observability, but must never log the plaintext key or its
+    secret half -- see routers/platform_admin.py's create_admin_user and
+    rotate_admin_user_key.
+    """
+    import logging
+
+    caplog.set_level(logging.DEBUG)
+
+    created = client.post(
+        "/admin/platform/admin-users",
+        json={"label": "log leak test", "restaurant_ids": [second_restaurant]},
+        headers=admin_headers,
+    ).json()
+    plaintext_key = created["api_key"]
+    secret = plaintext_key.split(".", 1)[1]
+
+    rotated = client.post(
+        f"/admin/platform/admin-users/{created['id']}/rotate-key", headers=admin_headers
+    ).json()
+    new_plaintext_key = rotated["api_key"]
+    new_secret = new_plaintext_key.split(".", 1)[1]
+
+    logged_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert plaintext_key not in logged_text
+    assert secret not in logged_text
+    assert new_plaintext_key not in logged_text
+    assert new_secret not in logged_text
+
+
 def test_list_admin_users_never_includes_key_hash_field_name(client, second_restaurant, admin_headers):
     client.post(
         "/admin/platform/admin-users",
