@@ -84,10 +84,11 @@
   // widget instance, regardless of restaurant (there is no per-restaurant
   // policy URL in this version — see frontend/privacy-policy.html and
   // frontend/terms-of-service.html), hosted at their actual public
-  // location (same host as PRIVACY_POLICY_URL — not a new domain
-  // decision, just a second page on it).
-  var PRIVACY_POLICY_URL = "https://restaurant-ai-agent-eight.vercel.app/privacy-policy.html";
-  var TERMS_OF_SERVICE_URL = "https://restaurant-ai-agent-eight.vercel.app/terms-of-service.html";
+  // location: the verified production domain (jantarai.com -- see
+  // frontend/robots.txt and frontend/sitemap.xml, same domain, not a
+  // new decision, just a second/third page on it).
+  var PRIVACY_POLICY_URL = "https://jantarai.com/privacy-policy.html";
+  var TERMS_OF_SERVICE_URL = "https://jantarai.com/terms-of-service.html";
 
   var LAUNCHER_ICON_SVG =
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +

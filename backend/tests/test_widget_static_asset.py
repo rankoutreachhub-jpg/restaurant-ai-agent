@@ -53,8 +53,8 @@ def test_unknown_static_widget_path_returns_a_plain_404(client):
 
 def test_widget_js_footer_links_to_terms_of_service_alongside_privacy_policy():
     content = WIDGET_JS_PATH.read_text()
-    assert 'var PRIVACY_POLICY_URL = "https://restaurant-ai-agent-eight.vercel.app/privacy-policy.html";' in content
-    assert 'var TERMS_OF_SERVICE_URL = "https://restaurant-ai-agent-eight.vercel.app/terms-of-service.html";' in content
+    assert 'var PRIVACY_POLICY_URL = "https://jantarai.com/privacy-policy.html";' in content
+    assert 'var TERMS_OF_SERVICE_URL = "https://jantarai.com/terms-of-service.html";' in content
     assert 'termsLinkEl.href = TERMS_OF_SERVICE_URL;' in content
     assert 'termsLinkEl.textContent = "Terms of Service";' in content
     # Same accessibility/style treatment as the pre-existing Privacy link.
@@ -63,3 +63,12 @@ def test_widget_js_footer_links_to_terms_of_service_alongside_privacy_policy():
     # The existing Privacy link itself must be unchanged.
     assert 'privacyLinkEl.href = PRIVACY_POLICY_URL;' in content
     assert 'privacyLinkEl.textContent = "Privacy Policy";' in content
+
+
+def test_widget_js_no_longer_references_the_old_temporary_domain():
+    """Final domain SEO update: jantarai.com is verified and live, so
+    the widget's policy links must no longer point at the temporary
+    Vercel hosting URL they previously used."""
+    content = WIDGET_JS_PATH.read_text()
+    assert "vercel.app" not in content
+    assert "restaurant-ai-agent-eight" not in content

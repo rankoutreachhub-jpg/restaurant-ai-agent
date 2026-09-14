@@ -277,12 +277,13 @@ def test_homepage_is_indexable():
     assert '<meta name="robots" content="index, follow">' in _read("index.html")
 
 
-def test_homepage_does_not_yet_have_canonical_or_og_url():
-    """jantarai.com is not connected yet -- per the approved SEO audit,
-    these must wait rather than point at a domain that isn't live."""
+def test_homepage_has_the_correct_canonical_and_og_url():
+    """jantarai.com is now verified and live (final domain SEO update) --
+    both must point at the real root URL, not a placeholder or the old
+    temporary hosting domain."""
     content = _read("index.html")
-    assert 'rel="canonical"' not in content
-    assert "og:url" not in content
+    assert '<link rel="canonical" href="https://jantarai.com/">' in content
+    assert '<meta property="og:url" content="https://jantarai.com/">' in content
 
 
 def test_homepage_has_open_graph_text_fields_but_no_invented_image():
@@ -400,6 +401,7 @@ PUBLIC_SEO_PAGES = {
         ),
         "og_title": "Jantar AI — AI Chat & Table Booking for Restaurants",
         "robots": "index, follow",
+        "canonical": "https://jantarai.com/",
     },
     "pricing.html": {
         "title": "Pricing — Jantar AI",
@@ -409,6 +411,7 @@ PUBLIC_SEO_PAGES = {
         ),
         "og_title": "Pricing — Jantar AI",
         "robots": "index, follow",
+        "canonical": "https://jantarai.com/pricing.html",
     },
     "terms-of-service.html": {
         "title": "Terms of Service — Jantar AI",
@@ -418,6 +421,7 @@ PUBLIC_SEO_PAGES = {
         ),
         "og_title": "Terms of Service — Jantar AI",
         "robots": "index, follow",
+        "canonical": "https://jantarai.com/terms-of-service.html",
     },
     "privacy-policy.html": {
         "title": "Privacy Policy — Jantar AI",
@@ -427,14 +431,18 @@ PUBLIC_SEO_PAGES = {
         ),
         "og_title": "Privacy Policy — Jantar AI",
         "robots": "index, follow",
+        "canonical": "https://jantarai.com/privacy-policy.html",
     },
     "demo.html": {
         "title": "Live Demo Chat — Jantar AI",
         "description": "See a live example of the Jantar AI restaurant chat assistant in action.",
         "og_title": "Live Demo Chat — Jantar AI",
         "robots": "noindex, follow",
+        "canonical": "https://jantarai.com/demo.html",
     },
 }
+
+PUBLIC_INDEXABLE_PAGES = list(PUBLIC_SEO_PAGES.keys())
 
 ALL_SIX_PAGES = list(PUBLIC_SEO_PAGES.keys()) + ["admin.html"]
 
@@ -499,14 +507,22 @@ def test_admin_page_has_no_twitter_card_tags():
     assert "twitter:" not in _read("admin.html")
 
 
-def test_no_canonical_or_og_url_anywhere_yet():
-    """jantarai.com is not connected yet -- canonical and og:url must
-    wait, per the approved SEO audit, rather than point at a domain
-    that isn't live."""
-    for page in ALL_SIX_PAGES:
+def test_every_public_page_has_the_correct_canonical_and_og_url():
+    """jantarai.com is verified and live -- every public page's
+    canonical and og:url must point at https://jantarai.com/<path>,
+    consistently, matching PUBLIC_SEO_PAGES exactly."""
+    for page, expected in PUBLIC_SEO_PAGES.items():
         content = _read(page)
-        assert 'rel="canonical"' not in content, page
-        assert "og:url" not in content, page
+        assert f'<link rel="canonical" href="{expected["canonical"]}">' in content, page
+        assert f'<meta property="og:url" content="{expected["canonical"]}">' in content, page
+
+
+def test_admin_page_still_has_no_canonical_or_og_url():
+    """admin.html is noindex/nofollow and not a public page -- it must
+    never gain a canonical or og:url, unlike the 5 public pages above."""
+    content = _read("admin.html")
+    assert 'rel="canonical"' not in content
+    assert "og:url" not in content
 
 
 def test_no_invented_og_image_anywhere():
@@ -546,12 +562,53 @@ def test_robots_txt_does_not_block_public_pages():
         assert public_path not in disallowed_paths
 
 
-def test_robots_txt_has_no_sitemap_directive_yet():
-    """jantarai.com is not connected yet -- a Sitemap: line (and
-    sitemap.xml itself) must wait, per the same "don't invent a
-    not-yet-live domain" discipline as canonical/og:url above, rather
-    than point crawlers at a domain that isn't live."""
-    assert "Sitemap:" not in _read("robots.txt")
+def test_robots_txt_references_the_live_sitemap():
+    """jantarai.com is verified and live -- robots.txt must now point
+    crawlers at the real sitemap, while the pre-existing admin disallow
+    stays exactly as it was."""
+    content = _read("robots.txt")
+    assert "Sitemap: https://jantarai.com/sitemap.xml" in content
+    assert "Disallow: /admin.html" in content
+
+
+# --- sitemap.xml (final domain SEO update) ---
+
+def _read_sitemap() -> str:
+    return (FRONTEND_DIR / "sitemap.xml").read_text()
+
+
+def test_sitemap_exists_and_is_well_formed_xml():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(_read_sitemap())
+    assert root.tag == "{http://www.sitemaps.org/schemas/sitemap/0.9}urlset"
+
+
+def test_sitemap_contains_exactly_the_five_public_pages_and_nothing_else():
+    import xml.etree.ElementTree as ET
+    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
+    root = ET.fromstring(_read_sitemap())
+    locs = {el.text for el in root.findall("sm:url/sm:loc", ns)}
+    assert locs == {
+        "https://jantarai.com/",
+        "https://jantarai.com/pricing.html",
+        "https://jantarai.com/demo.html",
+        "https://jantarai.com/privacy-policy.html",
+        "https://jantarai.com/terms-of-service.html",
+    }
+
+
+def test_sitemap_never_includes_admin_html():
+    content = _read_sitemap()
+    assert "admin" not in content.lower()
+
+
+def test_sitemap_never_invents_a_different_domain():
+    """Every <loc> must use the one verified production domain -- no
+    Railway/Vercel temporary host, no http://, no trailing differences."""
+    content = _read_sitemap()
+    assert "railway.app" not in content
+    assert "vercel.app" not in content
+    assert "http://jantarai.com" not in content
 
 
 def test_privacy_policy_footer_links_are_fixed():
