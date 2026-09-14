@@ -59,28 +59,153 @@ def test_growth_plan_is_marked_most_popular():
     assert "MOST POPULAR" in _read("pricing.html")
 
 
-def test_pricing_page_has_no_payment_provider_or_fake_checkout():
+def test_pricing_page_has_no_other_payment_provider_or_card_collection_fields():
     """
-    No payment-provider names or card-collection language anywhere.
-    "checkout" itself is deliberately NOT banned here -- the page
-    honestly says "No automated checkout yet" in its CTA note, which is
-    exactly the kind of honesty this task asked for; the absence of an
-    actual checkout FLOW is what matters, covered separately by the
-    no-<form>/mailto-only CTA check below.
+    Paddle is now the live, real payment provider (see
+    test_pricing_page_uses_paddle_checkout_for_every_plan below), so
+    "paddle" is no longer banned -- but no OTHER provider should be
+    named, and this page must never itself collect a raw card number
+    (Paddle's overlay collects payment details off-page, never in our
+    own HTML/JS).
     """
     content = _read("pricing.html").lower()
     for forbidden in (
-        "stripe", "paddle", "lemon squeezy", "lemonsqueezy",
+        "stripe", "lemon squeezy", "lemonsqueezy",
         "card number", "credit card",
     ):
         assert forbidden not in content
 
 
-def test_pricing_page_ctas_use_mailto_not_a_form():
+def test_pricing_page_ctas_trigger_paddle_checkout_not_a_form():
+    """The mailto-only CTAs are gone -- each plan's "Get Started" button
+    now triggers Paddle Checkout directly. Still no literal <form>:
+    Paddle's overlay collects payment details off-page, never in our
+    own HTML."""
     content = _read("pricing.html")
-    # One "Get Started" mailto CTA per plan (Starter, Growth, Pro).
-    assert content.count('href="mailto:rankoutreachhub@gmail.com') >= 3
     assert "<form" not in content
+    for plan in ("starter", "growth", "pro"):
+        assert f"onclick=\"startPaddleCheckout('{plan}')\"" in content, plan
+    assert content.count("cta-button") >= 3
+
+
+def test_pricing_page_loads_paddle_js_from_the_official_cdn():
+    content = _read("pricing.html")
+    assert '<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>' in content
+
+
+def test_pricing_page_initializes_paddle_with_a_client_side_token_variable():
+    """A Paddle CLIENT-SIDE token is safe for frontend code (see
+    https://developer.paddle.com/build/transactions/user-client-tokens)
+    and is intentionally not a real committed secret here -- the
+    operator fills in the real live token at deploy time, the same way
+    admin.html/demo.html's own API_BASE/API_URL constants are filled in
+    per-environment. This test checks the INTEGRATION is wired
+    correctly, not the literal placeholder text (which is expected to
+    be replaced)."""
+    content = _read("pricing.html")
+    assert "var PADDLE_CLIENT_TOKEN = " in content
+    assert "Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN })" in content
+
+
+def test_pricing_page_maps_each_plan_to_its_own_price_id_variable():
+    content = _read("pricing.html")
+    assert "var PADDLE_PRICE_IDS = {" in content
+    for plan in ("starter", "growth", "pro"):
+        assert f"{plan}: \"pri_" in content, f"expected a pri_-prefixed price id for {plan!r}"
+
+
+# The real, live Paddle monthly price ids for the three approved plans --
+# supplied directly by the account owner, referencing prices that already
+# exist in the live Paddle account (never created by this codebase).
+REAL_PADDLE_PRICE_IDS = {
+    "starter": "pri_01m2gvtqa1h6ecyq45nt61wkk8",
+    "growth": "pri_01m2gw4307t3zt670b86mfzs5d",
+    "pro": "pri_01m2gw98h023yskcr1cfw3qhw6",
+}
+
+
+def test_pricing_page_uses_the_exact_real_live_price_ids_not_placeholders():
+    content = _read("pricing.html")
+    # The old per-plan price-id placeholders must be gone -- only the
+    # separate, intentionally-still-unfilled client TOKEN placeholder
+    # (checked by its own test below) is expected to remain.
+    for stale_placeholder in (
+        "STARTER_MONTHLY_PRICE_ID", "GROWTH_MONTHLY_PRICE_ID", "PRO_MONTHLY_PRICE_ID",
+    ):
+        assert stale_placeholder not in content
+    for plan, price_id in REAL_PADDLE_PRICE_IDS.items():
+        assert f'{plan}: "{price_id}"' in content, f"expected {plan}'s exact real price id in pricing.html"
+    assert len(set(REAL_PADDLE_PRICE_IDS.values())) == 3, "each plan must have a distinct price id"
+
+
+def test_pricing_page_client_token_placeholder_is_intentionally_still_unfilled():
+    """The live client-side token is supplied through the existing
+    deployment configuration mechanism, not committed to source control
+    -- this locks in that the placeholder is still exactly that (a
+    placeholder), never a real-looking committed secret."""
+    content = _read("pricing.html")
+    assert 'var PADDLE_CLIENT_TOKEN = "live_REPLACE_WITH_YOUR_PADDLE_CLIENT_TOKEN";' in content
+
+
+def test_pricing_page_checkout_opens_in_overlay_mode_for_the_selected_price():
+    content = _read("pricing.html")
+    assert "Paddle.Checkout.open({" in content
+    assert 'priceId: priceId, quantity: 1' in content
+    assert '"overlay"' in content
+    assert 'displayMode: "overlay"' in content
+
+
+def test_pricing_page_checkout_redirects_to_the_real_success_page():
+    content = _read("pricing.html")
+    assert 'successUrl: "https://jantarai.com/checkout-success.html"' in content
+
+
+def test_pricing_page_never_configures_a_trial_or_annual_billing_cycle():
+    """Requirement: monthly Paddle Checkout only -- no trial period, no
+    annual/yearly billing cycle override anywhere in the checkout config."""
+    content = _read("pricing.html").lower()
+    for forbidden in ("trialdays", "trial_days", "billingcycle", "\"year\"", "'year'", "annual"):
+        assert forbidden not in content
+
+
+def test_pricing_page_never_hardcodes_a_paddle_server_side_api_key():
+    """Only the client-side token belongs in this file -- never a
+    server-side Paddle API key/secret (which would start with a
+    different prefix and grant far more than checkout access)."""
+    content = _read("pricing.html")
+    assert "PADDLE_API_KEY" not in content
+    assert "PADDLE_SECRET" not in content
+    assert "apikey_" not in content.lower()
+
+
+def test_pricing_page_has_a_graceful_fallback_if_paddle_fails_to_load():
+    content = _read("pricing.html")
+    assert 'id="checkout-error"' in content
+    assert "typeof Paddle.Checkout" in content
+    assert "rankoutreachhub@gmail.com" in content
+
+
+# --- Checkout success page (frontend/checkout-success.html) ---
+
+def test_checkout_success_page_exists_and_is_not_indexed():
+    content = _read("checkout-success.html")
+    assert "<title>" in content
+    assert "Jantar AI" in content
+    assert '<meta name="robots" content="noindex, nofollow">' in content
+
+
+def test_checkout_success_page_does_not_invent_automated_provisioning():
+    """Requirement: do not invent a backend provisioning flow yet -- the
+    success page must say a human follows up, not that the account is
+    already set up automatically."""
+    content = _read("checkout-success.html").lower()
+    assert "don't have automated account" in content or "manual" in content
+    for forbidden in ("your account is now active", "instantly provisioned", "automatically set up"):
+        assert forbidden not in content
+
+
+def test_checkout_success_page_links_back_to_the_homepage():
+    assert 'href="index.html"' in _read("checkout-success.html")
 
 
 def test_every_unimplemented_feature_is_labeled_coming_soon():
@@ -183,24 +308,46 @@ def test_terms_of_service_does_not_invent_legal_identity_details():
         assert forbidden not in content
 
 
-def test_terms_of_service_does_not_claim_payment_processing_or_refunds():
+def test_terms_of_service_names_paddle_but_no_other_provider_or_invented_refund_terms():
     """
-    No payment-provider names, card-collection language, or an actual
-    invented refund policy. The page DOES honestly say it does not
-    state a refund policy (since no payment processing exists yet) --
-    that denial is exactly the honesty this task asked for, so it's not
-    banned here; only a concrete, invented refund TERM (a time window or
-    "money back") would be a real problem.
+    Paddle is now the live, real payment provider (see
+    tests/test_frontend_static_pages.py's pricing-page Paddle tests), so
+    "paddle" is no longer banned here -- but no OTHER payment-provider
+    name, no raw card-collection language (Paddle's overlay collects
+    payment details off-page, never on this site), and no concrete,
+    invented refund TERM (a time window or "money back") may appear.
+    The page still honestly says it does not state a refund policy --
+    that denial is exactly the honesty this task asks for, so it is not
+    banned here.
     """
     content = _read("terms-of-service.html").lower()
     for forbidden in (
-        "stripe", "paddle", "lemon squeezy", "lemonsqueezy",
+        "stripe", "lemon squeezy", "lemonsqueezy",
         "card number", "credit card", "30-day refund", "money back",
     ):
         assert forbidden not in content
-    # It must instead say plainly that automated payment isn't implemented yet.
-    assert "not implemented yet" in _read("terms-of-service.html").lower() or \
-           "not implemented" in _read("terms-of-service.html").lower()
+    assert "paddle" in content
+
+
+def test_terms_of_service_reflects_paddle_checkout_with_manual_provisioning():
+    """The stale "automated checkout... not implemented yet" claim is
+    gone -- replaced with the current reality: Paddle checkout is live,
+    but subscription access/provisioning still goes through manual/admin
+    fulfillment until webhook-based automatic provisioning exists. No
+    automated provisioning, tax, or legal claim is invented."""
+    content = _read("terms-of-service.html")
+    lowered = content.lower()
+    assert "not implemented yet" not in lowered
+    assert "no payment-processing provider is integrated" not in lowered
+    assert "manual" in lowered and "fulfillment" in lowered
+    assert "webhook-based automatic provisioning" in lowered
+    for forbidden in (
+        "instantly provisioned", "automatically provisioned", "automatically set up",
+        "sales tax", "vat included", "tax-inclusive",
+    ):
+        assert forbidden not in lowered
+    # Still no invented refund policy.
+    assert "we do not yet state a refund policy" in lowered
 
 
 def test_terms_of_service_does_not_present_coming_soon_features_as_available():

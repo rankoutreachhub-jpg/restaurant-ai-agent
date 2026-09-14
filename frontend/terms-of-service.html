@@ -192,20 +192,23 @@
       Operating the Service involves a small number of third-party providers — currently Google
       (Gemini API, for generating AI chat replies), Meta (WhatsApp Business Platform, where a
       restaurant has WhatsApp enabled), Resend (for optional booking-confirmation emails), Railway
-      (hosting), and optionally Sentry (error monitoring, off by default). What each one is used
-      for and what data may reach it is described in full in our
-      <a href="privacy-policy.html">Privacy Policy</a>. No payment-processing provider is
-      integrated with the Service yet — see Section 8.
+      (hosting), Paddle (payment processing for subscription checkout), and optionally Sentry
+      (error monitoring, off by default). What each one is used for and what data may reach it is
+      described in full in our <a href="privacy-policy.html">Privacy Policy</a>. See Section 8 for
+      how Paddle-powered checkout works today.
     </p>
 
     <h2>8. Fees and payment</h2>
     <p>
-      Our <a href="pricing.html">Pricing page</a> describes the plans we intend to offer. Automated
-      checkout and payment processing are not implemented yet — no card details or payments are
-      collected through this website. Access to a paid plan today is arranged manually by
-      contacting us at the email address in Section 14. Because no automated payment processing
-      exists, we do not state a refund policy here; one will be added once billing is actually
-      introduced, and these terms will be updated at that point.
+      Our <a href="pricing.html">Pricing page</a> describes the plans we offer. Checkout for a
+      monthly subscription is handled through Paddle, our payment provider — Paddle collects and
+      processes your payment details directly; we do not receive or store your card details
+      ourselves. See our <a href="privacy-policy.html">Privacy Policy</a> for what data reaches
+      Paddle. Completing checkout does not by itself grant automated access to the platform:
+      subscription access and account setup are currently handled through our existing manual/
+      admin fulfillment process, with our team following up at the email address you provide,
+      until webhook-based automatic provisioning is implemented. We do not yet state a refund policy;
+      this section will be updated once one is established.
     </p>
 
     <h2>9. Availability and service limitations</h2>

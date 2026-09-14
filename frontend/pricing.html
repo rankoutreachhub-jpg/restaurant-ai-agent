@@ -20,6 +20,7 @@
 <link rel="icon" type="image/png" sizes="48x48" href="favicon-48x48.png">
 <link rel="icon" type="image/png" sizes="512x512" href="favicon-512x512.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -161,22 +162,35 @@
   }
   .cta-button {
     display: block;
+    width: 100%;
+    border: none;
     text-align: center;
     background: #7a2e2e;
     color: #fff;
     text-decoration: none;
+    font-family: inherit;
     font-weight: 600;
     font-size: 14.5px;
     padding: 12px 16px;
     border-radius: 8px;
+    cursor: pointer;
   }
   .cta-button:hover { background: #612424; }
+  .cta-button:disabled { opacity: 0.6; cursor: not-allowed; }
   .cta-note {
     text-align: center;
     font-size: 12px;
     color: #888;
     margin-top: 10px;
   }
+  .checkout-error {
+    text-align: center;
+    font-size: 12.5px;
+    color: #a12d2d;
+    margin-top: 10px;
+    display: none;
+  }
+  .checkout-error.visible { display: block; }
   .notice-box {
     background: #fdf6ec;
     border: 1px solid #e8d6b8;
@@ -228,7 +242,7 @@
         <li><span class="check">✓</span> 1 admin user</li>
         <li><span class="check">✓</span> Basic widget branding</li>
       </ul>
-      <a class="cta-button" href="mailto:rankoutreachhub@gmail.com?subject=Jantar%20AI%20%E2%80%94%20Starter%20plan%20enquiry">Get Started</a>
+      <button type="button" class="cta-button" data-plan="starter" onclick="startPaddleCheckout('starter')">Get Started</button>
     </div>
 
     <div class="plan-card featured">
@@ -248,7 +262,7 @@
         <li><span class="check">✓</span> 3 admin users</li>
         <li><span class="check">✓</span> Full widget branding</li>
       </ul>
-      <a class="cta-button" href="mailto:rankoutreachhub@gmail.com?subject=Jantar%20AI%20%E2%80%94%20Growth%20plan%20enquiry">Get Started</a>
+      <button type="button" class="cta-button" data-plan="growth" onclick="startPaddleCheckout('growth')">Get Started</button>
     </div>
 
     <div class="plan-card">
@@ -266,12 +280,16 @@
         <li><span class="check">✓</span> 5 admin users</li>
         <li><span class="check">✓</span> Full widget branding</li>
       </ul>
-      <a class="cta-button" href="mailto:rankoutreachhub@gmail.com?subject=Jantar%20AI%20%E2%80%94%20Pro%20plan%20enquiry">Get Started</a>
+      <button type="button" class="cta-button" data-plan="pro" onclick="startPaddleCheckout('pro')">Get Started</button>
     </div>
 
   </div>
 
-  <p class="cta-note">Get started by contacting us directly — we'll help set up your restaurant. No automated checkout yet.</p>
+  <p class="cta-note">Secure checkout powered by Paddle — subscribe instantly, cancel anytime.</p>
+  <p class="checkout-error" id="checkout-error">
+    Checkout couldn't load just now. Please try again, or email us at
+    <a href="mailto:rankoutreachhub@gmail.com">rankoutreachhub@gmail.com</a>.
+  </p>
 
   <div class="notice-box">
     Jantar AI is an early-stage product. Items marked "Coming soon" are planned but not yet
@@ -285,6 +303,69 @@
     <a href="mailto:rankoutreachhub@gmail.com">rankoutreachhub@gmail.com</a>
   </div>
 </div>
+
+<script>
+"use strict";
+
+// =========================================================
+// Paddle checkout configuration
+// =========================================================
+// These three values are specific to the live Jantar AI Paddle account
+// and are NOT committed here — fill them in on deploy, the same way
+// admin.html/demo.html's own API_BASE/API_URL constants are filled in
+// per-environment (see those files). A Paddle client-side token is
+// designed by Paddle to be used in frontend code (see
+// https://developer.paddle.com/build/transactions/user-client-tokens) —
+// it is not a secret API key and must never be confused with one; no
+// server-side Paddle API key/secret belongs anywhere in this file.
+//
+//   PADDLE_CLIENT_TOKEN — Paddle Dashboard > Developer Tools > Authentication
+//                         > Client-side tokens (the LIVE token, not sandbox).
+//   PADDLE_PRICE_IDS    — Paddle Dashboard > Catalog > Products > (each
+//                         product's) Prices tab — the id of each plan's
+//                         existing MONTHLY price (starts "pri_"), not the
+//                         product id (starts "pro_"). Do not create new
+//                         products/prices here; these must reference the
+//                         ones that already exist in the live account.
+var PADDLE_CLIENT_TOKEN = "live_REPLACE_WITH_YOUR_PADDLE_CLIENT_TOKEN";
+// Real, live Paddle monthly price ids for the three approved plans —
+// these reference existing Paddle prices; nothing is created here.
+var PADDLE_PRICE_IDS = {
+  starter: "pri_01m2gvtqa1h6ecyq45nt61wkk8",
+  growth: "pri_01m2gw4307t3zt670b86mfzs5d",
+  pro: "pri_01m2gw98h023yskcr1cfw3qhw6"
+};
+
+// Paddle.js (loaded in <head>) exposes window.Paddle once it has
+// finished loading. No Paddle.Environment.set(...) call is made here —
+// that call is only for sandbox testing; a live client token always
+// checks out against the live Paddle account by default.
+if (window.Paddle) {
+  Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
+}
+
+function startPaddleCheckout(planKey) {
+  var errorEl = document.getElementById("checkout-error");
+  errorEl.classList.remove("visible");
+
+  if (!window.Paddle || typeof Paddle.Checkout === "undefined") {
+    // Most likely an ad-blocker/privacy extension blocked paddle.js, or
+    // the network request for it failed -- fail visibly, never silently,
+    // and never pretend a checkout happened.
+    errorEl.classList.add("visible");
+    return;
+  }
+
+  var priceId = PADDLE_PRICE_IDS[planKey];
+  Paddle.Checkout.open({
+    items: [{ priceId: priceId, quantity: 1 }],
+    settings: {
+      displayMode: "overlay",
+      successUrl: "https://jantarai.com/checkout-success.html"
+    }
+  });
+}
+</script>
 
 </body>
 </html>
