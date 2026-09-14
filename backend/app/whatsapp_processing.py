@@ -50,6 +50,11 @@ from .booking_tool import make_booking_tool_handler
 from .database import SessionLocal
 from .phone import InvalidPhoneNumberError, normalize_whatsapp_phone
 from .rate_limit import whatsapp_rate_limiter
+from .subscription_enforcement import (
+    check_conversation_quota,
+    check_subscription_status_allows_service,
+    check_whatsapp_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +114,24 @@ def process_incoming_message(phone_number_id: str, message: dict) -> None:
             )
             return
 
+        # Jantar SaaS Phase 3: a downgraded/blocked restaurant stops
+        # receiving AI-generated WhatsApp replies even though its
+        # WhatsAppNumber mapping row is left in place — see
+        # app/subscription_enforcement.py. Both checks raise
+        # HTTPException, caught here exactly like whatsapp_rate_limiter's
+        # own check() below: log an operational fact and drop the
+        # message, never raise further (there is no request to raise to).
+        try:
+            check_subscription_status_allows_service(db, restaurant.id)
+            check_whatsapp_allowed(db, restaurant.id)
+        except HTTPException:
+            logger.warning(
+                "WhatsApp message dropped: restaurant's subscription/plan does not allow "
+                "AI service (restaurant_id=%s)",
+                restaurant.id,
+            )
+            return
+
         external_message_id = message.get("id")
         if not external_message_id:
             logger.warning(
@@ -151,6 +174,25 @@ def process_incoming_message(phone_number_id: str, message: dict) -> None:
                 restaurant.id,
             )
             return
+
+        # Same monthly conversation-quota rule as web/widget chat
+        # (Product Decision #1), checked BEFORE
+        # get_or_create_whatsapp_conversation for the same reason as
+        # routers/chat.py — see check_conversation_quota's docstring.
+        # The underlying counter (current_period_conversation_count)
+        # already counts across every channel together, so a restaurant
+        # capped on web/widget traffic cannot bypass its plan's monthly
+        # limit by moving to WhatsApp.
+        if not conversations.whatsapp_conversation_exists(db, restaurant, customer_phone):
+            try:
+                check_conversation_quota(db, restaurant.id)
+            except HTTPException:
+                logger.warning(
+                    "WhatsApp message dropped: monthly AI conversation quota reached "
+                    "(restaurant_id=%s)",
+                    restaurant.id,
+                )
+                return
 
         conversation, is_new = conversations.get_or_create_whatsapp_conversation(
             db, restaurant, customer_phone

@@ -3,7 +3,26 @@ POST/DELETE /admin/platform/restaurants/{id}/whatsapp-number (Stage 3
 Step 6B): superadmin-only, consistent with every other endpoint in
 app/routers/platform_admin.py (router-level require_superadmin — see
 that file's dependencies=[...]).
+
+This file's own tests exercise mapping mechanics (auth, upsert, conflict,
+delete, reassignment) — not plan gating, which
+tests/test_subscription_enforcement.py covers on its own. Restaurant 1 is
+seeded on Starter, which Jantar SaaS Phase 3 now blocks from mapping a
+WhatsApp number at all (see app/subscription_enforcement.py), so the
+autouse fixture below upgrades it to Growth for every test in this file.
 """
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _restaurant_1_on_whatsapp_enabled_plan(client, admin_headers):
+    response = client.patch(
+        "/admin/platform/restaurants/1/subscription",
+        json={"plan_code": "growth"},
+        headers=admin_headers,
+    )
+    assert response.status_code == 200
 
 
 def test_set_whatsapp_number_requires_a_key_at_all(client):
@@ -69,6 +88,11 @@ def test_re_posting_replaces_the_existing_mapping(client, admin_headers):
 def test_phone_number_id_already_mapped_to_a_different_restaurant_is_rejected(
     client, admin_headers, second_restaurant
 ):
+    client.patch(
+        f"/admin/platform/restaurants/{second_restaurant}/subscription",
+        json={"plan_code": "growth"},
+        headers=admin_headers,
+    )
     client.post(
         "/admin/platform/restaurants/1/whatsapp-number",
         json={"phone_number_id": "6000000000000005", "display_phone_number": "+15550001111"},
@@ -102,6 +126,11 @@ def test_deleting_when_none_mapped_is_not_an_error(client, admin_headers, second
 def test_deleted_mapping_can_be_reassigned_to_a_different_restaurant(
     client, admin_headers, second_restaurant
 ):
+    client.patch(
+        f"/admin/platform/restaurants/{second_restaurant}/subscription",
+        json={"plan_code": "growth"},
+        headers=admin_headers,
+    )
     client.post(
         "/admin/platform/restaurants/1/whatsapp-number",
         json={"phone_number_id": "6000000000000007", "display_phone_number": "+15550001111"},

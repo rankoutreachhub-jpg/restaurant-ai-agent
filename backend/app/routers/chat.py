@@ -43,6 +43,7 @@ from ..booking_notifications import send_confirmation_email_task
 from ..booking_tool import make_booking_tool_handler
 from ..database import get_db
 from ..rate_limit import chat_rate_limiter
+from ..subscription_enforcement import check_conversation_quota, check_subscription_status_allows_service
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,21 @@ def chat(
         )
         if not restaurant:
             raise HTTPException(status_code=404, detail="Restaurant not found")
+
+        # Jantar SaaS Phase 3: a blocked subscription (past_due/canceled)
+        # stops new customer AI service here, before any conversation is
+        # touched — see app/subscription_enforcement.py.
+        check_subscription_status_allows_service(db, restaurant.id)
+
+        # Monthly conversation quota (Product Decision #1) is only
+        # enforced on a request that is actually about to start a NEW
+        # conversation — checked here, strictly before
+        # get_or_create_conversation could flush one, via the read-only
+        # peek conversation_exists_for_token. See
+        # check_conversation_quota's docstring for why the ordering
+        # matters.
+        if not conversations.conversation_exists_for_token(db, restaurant, request.conversation_token):
+            check_conversation_quota(db, restaurant.id)
 
         # Resolving conversation identity happens entirely server-side,
         # from the request body's restaurant_id and (optional)

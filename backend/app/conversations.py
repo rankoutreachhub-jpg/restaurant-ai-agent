@@ -52,6 +52,57 @@ def _generate_public_token() -> str:
     return secrets.token_urlsafe(PUBLIC_TOKEN_BYTES)
 
 
+def conversation_exists_for_token(
+    db: Session, restaurant: models.Restaurant, public_token: Optional[str]
+) -> bool:
+    """
+    Read-only companion to get_or_create_conversation below: True if
+    public_token resolves to a real, existing Conversation for THIS
+    restaurant (i.e. get_or_create_conversation would RESUME it rather
+    than create a new one) — with no side effects at all, so a caller
+    can decide whether "this request is about to create a new
+    conversation" BEFORE get_or_create_conversation runs and potentially
+    flushes a new row (Jantar SaaS Phase 3's monthly conversation quota
+    — see app/subscription_enforcement.py — must be checked strictly
+    before that flush, since a flushed-but-uncommitted row is already
+    visible to a COUNT(*) query within the same transaction, which would
+    double-count the very conversation being created).
+    """
+    if not public_token:
+        return False
+    return (
+        db.query(models.Conversation)
+        .filter(
+            models.Conversation.public_token == public_token,
+            models.Conversation.restaurant_id == restaurant.id,
+        )
+        .first()
+        is not None
+    )
+
+
+def whatsapp_conversation_exists(db: Session, restaurant: models.Restaurant, customer_phone: str) -> bool:
+    """
+    The WhatsApp-specific counterpart to conversation_exists_for_token
+    above, mirroring get_or_create_whatsapp_conversation's own 24-hour-
+    window resolution query but with no side effects — same rationale:
+    lets a caller check the monthly conversation quota strictly before
+    that function's own flush of a brand-new conversation.
+    """
+    window_start = datetime.utcnow() - WHATSAPP_CUSTOMER_SERVICE_WINDOW
+    return (
+        db.query(models.Conversation)
+        .filter(
+            models.Conversation.restaurant_id == restaurant.id,
+            models.Conversation.channel == "whatsapp",
+            models.Conversation.external_id == customer_phone,
+            models.Conversation.updated_at >= window_start,
+        )
+        .first()
+        is not None
+    )
+
+
 def get_or_create_conversation(
     db: Session, restaurant: models.Restaurant, public_token: Optional[str], channel: str = "web"
 ) -> Tuple[models.Conversation, bool]:

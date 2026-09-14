@@ -27,6 +27,11 @@ from ..auth import AdminIdentity, require_superadmin
 from ..database import get_db
 from ..onboarding_status import compute_restaurant_onboarding_status
 from ..rate_limit import admin_rate_limiter
+from ..subscription_enforcement import (
+    check_admin_user_quota,
+    check_whatsapp_allowed,
+    record_subscription_change_event,
+)
 from ..subscriptions import create_subscription_for_restaurant
 from ..widget_keys import generate_widget_key
 
@@ -227,6 +232,9 @@ def set_whatsapp_number(
     message from that WhatsApp number.
     """
     _get_restaurant_or_404(db, restaurant_id)
+    # Jantar SaaS Phase 3: creating/replacing a mapping is gated by plan
+    # (Product Decision #5); deleting one below is deliberately not.
+    check_whatsapp_allowed(db, restaurant_id)
 
     conflicting = (
         db.query(models.WhatsAppNumber)
@@ -294,6 +302,12 @@ def create_admin_user(data: schemas.AdminUserCreate, db: Session = Depends(get_d
     # dangling/nonexistent grant.
     for restaurant_id in data.restaurant_ids:
         _get_restaurant_or_404(db, restaurant_id)
+
+    # Jantar SaaS Phase 3: each target restaurant's max_admin_users cap
+    # (Product Decision #4) — checked for every distinct restaurant this
+    # new admin user would be granted, before creating anything.
+    for restaurant_id in set(data.restaurant_ids):
+        check_admin_user_quota(db, restaurant_id)
 
     plaintext_key, key_id, key_hash = generate_key()
 
@@ -395,6 +409,9 @@ def grant_restaurant_access(admin_user_id: int, restaurant_id: int, db: Session 
         .first()
     )
     if not existing:
+        # Jantar SaaS Phase 3: only a genuinely NEW grant is quota-checked
+        # — re-granting an already-existing access stays a no-op, as before.
+        check_admin_user_quota(db, restaurant_id)
         db.add(models.AdminRestaurantAccess(admin_user_id=admin_user_id, restaurant_id=restaurant_id))
         db.commit()
         db.refresh(admin_user)
@@ -478,9 +495,20 @@ def update_restaurant_subscription(
     _get_restaurant_or_404(db, restaurant_id)
     subscription = _get_subscription_or_404(db, restaurant_id)
 
+    old_plan_code = subscription.plan_code
+    old_status = subscription.status
+
     updates = data.model_dump(exclude_unset=True)
     for field, value in updates.items():
         setattr(subscription, field, value)
+
+    # Jantar SaaS Phase 3: records plan_code/status changes only (a no-op
+    # PATCH resubmitting the same values writes nothing) — see
+    # app/subscription_enforcement.py:record_subscription_change_event.
+    # Rides along in this same transaction, committed together below.
+    record_subscription_change_event(
+        db, subscription, old_plan_code=old_plan_code, old_status=old_status
+    )
 
     db.commit()
     db.refresh(subscription)

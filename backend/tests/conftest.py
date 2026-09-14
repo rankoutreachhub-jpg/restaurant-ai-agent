@@ -43,6 +43,7 @@ command.upgrade(Config(str(_alembic_ini)), "head")
 import pytest
 from fastapi.testclient import TestClient
 
+from app import models
 from app.database import SessionLocal
 from app.main import app
 from app.rate_limit import (
@@ -122,14 +123,34 @@ def second_restaurant(client, admin_headers):
 
 
 @pytest.fixture()
-def scoped_admin_key(client, admin_headers):
+def scoped_admin_key(client, admin_headers, db):
     """
     Factory fixture: scoped_admin_key(restaurant_ids) creates a real
     restaurant-scoped admin user via /admin/platform/admin-users (using
     the superadmin key) and returns (admin_user_id, headers) using the
     key actually issued by the API — not a hand-constructed one.
+
+    Jantar SaaS Phase 3: max_admin_users is now enforced per restaurant
+    (see app/subscription_enforcement.py), and this test database
+    persists for the whole pytest session (see the module-level
+    DATABASE_URL setup above) — dozens of independent tests across many
+    files each call this fixture for restaurant 1, which is seeded on
+    Starter (max_admin_users=1). This fixture's contract has always been
+    "hand me A valid scoped admin key for these restaurants" for THIS
+    test, never "and keep every previous test's admin alive too" — no
+    test relies on a prior test's scoped admin still existing — so it
+    revokes any pre-existing admin access to the requested restaurants
+    first, keeping each restaurant's live admin count bounded to what
+    THIS test itself creates, regardless of how many other tests used
+    this same fixture earlier in the session.
     """
     def _make(restaurant_ids, label="test scoped admin"):
+        for restaurant_id in restaurant_ids:
+            db.query(models.AdminRestaurantAccess).filter(
+                models.AdminRestaurantAccess.restaurant_id == restaurant_id
+            ).delete()
+        db.commit()
+
         response = client.post(
             "/admin/platform/admin-users",
             json={"label": label, "restaurant_ids": restaurant_ids},
@@ -164,8 +185,26 @@ def whatsapp_number(client, admin_headers):
     maps a restaurant to a WhatsApp phone_number_id via the real
     /admin/platform/restaurants/{id}/whatsapp-number endpoint (using the
     superadmin key) — no direct DB insert needed.
+
+    Jantar SaaS Phase 3: WhatsApp mapping is now gated by plan (Starter
+    disallows it — see app/subscription_enforcement.py), but every
+    restaurant this fixture is used with (restaurant 1, second_restaurant,
+    etc.) is seeded/created on Starter by default. This fixture's own
+    tests care about mapping/message-processing mechanics, not plan
+    gating, so it upgrades the target restaurant to Growth (WhatsApp-
+    enabled) first — the same way it would in real use once a restaurant
+    actually subscribes to a WhatsApp-enabled plan. Tests that
+    specifically exercise the Starter-blocks-WhatsApp behavior do NOT use
+    this fixture (see tests/test_subscription_enforcement.py).
     """
     def _make(restaurant_id, phone_number_id="1000000000000000", display_phone_number="+15550001111"):
+        plan_response = client.patch(
+            f"/admin/platform/restaurants/{restaurant_id}/subscription",
+            json={"plan_code": "growth"},
+            headers=admin_headers,
+        )
+        assert plan_response.status_code == 200
+
         response = client.post(
             f"/admin/platform/restaurants/{restaurant_id}/whatsapp-number",
             json={"phone_number_id": phone_number_id, "display_phone_number": display_phone_number},

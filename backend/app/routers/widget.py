@@ -30,6 +30,7 @@ from .. import conversations, knowledge, llm, models, schemas
 from ..booking_tool import make_booking_tool_handler
 from ..database import get_db
 from ..rate_limit import widget_chat_rate_limiter, widget_config_rate_limiter
+from ..subscription_enforcement import check_conversation_quota, check_subscription_status_allows_service
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +103,17 @@ def widget_chat(
         config = _get_active_widget_config_or_404(db, widget_key)
         restaurant = config.restaurant
 
+        # Jantar SaaS Phase 3: same enforcement as routers/chat.py — see
+        # app/subscription_enforcement.py and that module's docstrings
+        # for the full rationale.
+        check_subscription_status_allows_service(db, restaurant.id)
+
         incoming_token = http_request.headers.get("X-Conversation-Token")
+        # See routers/chat.py's identical check for why this must run
+        # BEFORE get_or_create_conversation, not after.
+        if not conversations.conversation_exists_for_token(db, restaurant, incoming_token):
+            check_conversation_quota(db, restaurant.id)
+
         conversation, is_new = conversations.get_or_create_conversation(
             db, restaurant, incoming_token, channel="widget"
         )

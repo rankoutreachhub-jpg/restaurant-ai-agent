@@ -262,6 +262,20 @@ def test_deactivating_admin_user_blocks_access_immediately(client, second_restau
 
 
 def test_grant_and_revoke_restaurant_access(client, second_restaurant, admin_headers):
+    # Jantar SaaS Phase 3: max_admin_users is now enforced per restaurant
+    # (see app/subscription_enforcement.py). Restaurant 1 is seeded on
+    # Starter (cap 1) and, by the time this test runs, already has a
+    # live admin grant from another test earlier in this shared session
+    # (see tests/conftest.py:scoped_admin_key) — this test's own point is
+    # to exercise grant/revoke mechanics on restaurant 1, not plan
+    # gating, so it upgrades to Growth (cap 3) first for headroom.
+    upgrade = client.patch(
+        "/admin/platform/restaurants/1/subscription",
+        json={"plan_code": "growth"},
+        headers=admin_headers,
+    )
+    assert upgrade.status_code == 200
+
     created = client.post(
         "/admin/platform/admin-users",
         json={"label": "grant/revoke test", "restaurant_ids": [second_restaurant]},

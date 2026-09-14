@@ -94,12 +94,19 @@ def test_scoped_admin_cannot_view_a_restaurant_it_is_not_granted(client, second_
     assert response.status_code == 404
 
 
-def test_scoped_admin_can_view_its_own_granted_restaurant_subscription(client, scoped_admin_key):
-    _, headers = scoped_admin_key([1])
-    response = client.get(_subscription_url(1), headers=headers)
+def test_scoped_admin_can_view_its_own_granted_restaurant_subscription(
+    client, second_restaurant, scoped_admin_key
+):
+    # Uses second_restaurant, not restaurant 1, so this test's assertion
+    # that the plan is still the seeded Starter default can never be
+    # affected by another test elsewhere in this shared session having
+    # changed restaurant 1's plan (e.g. the WhatsApp fixtures upgrading
+    # it to Growth — see tests/conftest.py:whatsapp_number).
+    _, headers = scoped_admin_key([second_restaurant])
+    response = client.get(_subscription_url(second_restaurant), headers=headers)
     assert response.status_code == 200
     body = response.json()
-    assert body["restaurant_id"] == 1
+    assert body["restaurant_id"] == second_restaurant
     assert body["plan_code"] == "starter"
     assert body["plan_name"] == "Starter"
     assert body["status"] == "active"
