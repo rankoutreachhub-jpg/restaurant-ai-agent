@@ -55,7 +55,15 @@ def _make_booking_data(**overrides):
         customer_name="Jane Doe",
         phone="01234 567890",
         email="jane@example.com",
-        booking_date=_fresh_date(),
+        # Only draws a fresh date from the shared counter when the
+        # caller doesn't already supply one — calling _fresh_date()
+        # unconditionally here (even when about to be overridden)
+        # wastefully advances the counter on every invocation, which the
+        # duplicate-guard tests below (each of which supplies its own
+        # explicit `d` used across several _make_booking_data() calls)
+        # made costly enough to risk this file's date range eventually
+        # reaching another test file's own anchor-based range.
+        booking_date=overrides.get("booking_date") or _fresh_date(),
         booking_time=_SAFE_TIME,
         party_size=4,
         notes=None,
@@ -156,8 +164,25 @@ def test_update_booking_slot_is_rechecked_for_conflicts(db):
     d = _fresh_date()
     half = restaurant.seating_capacity // 2
 
-    create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
-    create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
+    # Two DIFFERENT customers (distinct phone/email) filling the same
+    # slot — must stay distinct from Final QA Audit finding C1's
+    # duplicate-booking guard (tests/test_booking_service.py's new
+    # "same customer, same slot" tests below), which would otherwise
+    # reject the second of these two same-contact/same-slot bookings.
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, party_size=half, booking_time=time(18, 0),
+            phone="01111 111111", email="party-a@example.com",
+        ),
+    )
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, party_size=half, booking_time=time(18, 0),
+            phone="02222 222222", email="party-b@example.com",
+        ),
+    )
     # _SAFE_TIME (12:00) rather than a hardcoded evening time: it must
     # not overlap the 18:00 slot above (12:00-13:30 vs 18:00-19:30 don't)
     # AND fall within opening hours regardless of which weekday `d` is —
@@ -209,9 +234,143 @@ def test_reactivating_a_cancelled_booking_is_rechecked(db):
         db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0))
     )
     update_booking(db, restaurant, first, schemas.BookingUpdate(status="cancelled"))
-    # Two other bookings now fill the slot `first` used to hold.
-    create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
-    create_booking(db, restaurant, _make_booking_data(booking_date=d, party_size=half, booking_time=time(18, 0)))
+    # Two other bookings (different customers — see this file's other
+    # same-slot test above for why) now fill the slot `first` used to hold.
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, party_size=half, booking_time=time(18, 0),
+            phone="03333 333333", email="party-c@example.com",
+        ),
+    )
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, party_size=half, booking_time=time(18, 0),
+            phone="04444 444444", email="party-d@example.com",
+        ),
+    )
 
     with pytest.raises(BookingConflictError):
         update_booking(db, restaurant, first, schemas.BookingUpdate(status="confirmed"))
+
+
+# =========================================================
+# Duplicate-booking guard (Final QA Audit finding C1) — see
+# app/booking.py:_find_duplicate_booking for the identity/normalization
+# rule this exercises.
+# =========================================================
+
+def test_exact_duplicate_booking_is_rejected(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(19, 0)))
+
+    with pytest.raises(BookingConflictError):
+        create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(19, 0)))
+
+
+def test_different_customer_can_still_book_the_same_slot(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, booking_time=time(19, 0), party_size=2,
+            phone="05555 555555", email="first-customer@example.com",
+        ),
+    )
+
+    # A different customer, capacity permitting, is never blocked by the
+    # first customer's own booking of the identical slot.
+    second = create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, booking_time=time(19, 0), party_size=2,
+            phone="06666 666666", email="second-customer@example.com",
+        ),
+    )
+    assert second.id is not None
+
+
+def test_same_customer_can_book_a_different_time(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(12, 0)))
+
+    # Same phone/email as the default in _make_booking_data, different
+    # time — not a duplicate, the guard only matches on the exact
+    # (date, time) pair.
+    second = create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(19, 0)))
+    assert second.id is not None
+
+
+def test_same_customer_can_book_a_different_date(db):
+    restaurant = _restaurant(db)
+    d1 = _fresh_date()
+    d2 = _fresh_date()
+    create_booking(db, restaurant, _make_booking_data(booking_date=d1, booking_time=_SAFE_TIME))
+
+    second = create_booking(db, restaurant, _make_booking_data(booking_date=d2, booking_time=_SAFE_TIME))
+    assert second.id is not None
+
+
+def test_duplicate_guard_is_not_bypassed_by_phone_formatting_differences(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    create_booking(
+        db, restaurant,
+        _make_booking_data(booking_date=d, booking_time=time(19, 0), phone="01234 567890"),
+    )
+
+    # Same real number, different cosmetic formatting (spaces/hyphens/
+    # parens) — still recognised as the same customer.
+    with pytest.raises(BookingConflictError):
+        create_booking(
+            db, restaurant,
+            _make_booking_data(booking_date=d, booking_time=time(19, 0), phone="(01234)-567-890"),
+        )
+
+
+def test_duplicate_guard_is_not_bypassed_by_email_case_differences(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    create_booking(
+        db, restaurant,
+        _make_booking_data(
+            booking_date=d, booking_time=time(19, 0),
+            phone="07777 777777", email="jane@example.com",
+        ),
+    )
+
+    # A different phone (so only the email match can trigger the guard)
+    # but the same address with different casing/whitespace.
+    with pytest.raises(BookingConflictError):
+        create_booking(
+            db, restaurant,
+            _make_booking_data(
+                booking_date=d, booking_time=time(19, 0),
+                phone="08888 888888", email="  Jane@EXAMPLE.com  ",
+            ),
+        )
+
+
+def test_cancelled_booking_does_not_block_a_genuine_rebooking_of_the_same_slot(db):
+    restaurant = _restaurant(db)
+    d = _fresh_date()
+    first = create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(19, 0)))
+    update_booking(db, restaurant, first, schemas.BookingUpdate(status="cancelled"))
+
+    # Same customer, same slot, but the earlier booking is cancelled —
+    # not a duplicate of anything currently confirmed.
+    rebooked = create_booking(db, restaurant, _make_booking_data(booking_date=d, booking_time=time(19, 0)))
+    assert rebooked.id is not None
+
+
+def test_existing_valid_booking_behavior_is_unchanged_by_the_duplicate_guard(db):
+    """Regression check: ordinary single-booking creation still succeeds
+    exactly as before this guard was added."""
+    restaurant = _restaurant(db)
+    booking = create_booking(db, restaurant, _make_booking_data(party_size=4))
+    assert booking.id is not None
+    assert booking.status == "confirmed"

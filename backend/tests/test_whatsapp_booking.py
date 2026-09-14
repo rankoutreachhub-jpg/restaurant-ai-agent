@@ -136,8 +136,11 @@ def test_rejected_booking_through_whatsapp_creates_no_booking(client, monkeypatc
     restaurant = db.query(models.Restaurant).filter(models.Restaurant.id == 1).first()
     assert restaurant.seating_capacity == 40
     for i in range(2):
+        # Distinct phone per filler — two different parties filling
+        # capacity, not the same customer double-booking (see
+        # app/booking.py's duplicate-booking guard).
         create_booking(db, restaurant, schemas.BookingCreate(
-            customer_name=f"Filler Booking {i}", phone="07911 000000", email=f"filler{i}@example.com",
+            customer_name=f"Filler Booking {i}", phone=f"07911 00000{i}", email=f"filler{i}@example.com",
             booking_date=d, booking_time=_SAFE_TIME, party_size=20,
         ))
 

@@ -378,8 +378,11 @@ def test_rejected_booking_through_the_widget_creates_no_booking(client, monkeypa
 
     restaurant = db.query(models.Restaurant).filter(models.Restaurant.id == second_restaurant).first()
     for i in range(2):
+        # Distinct phone per filler — two different parties filling
+        # capacity, not the same customer double-booking (see
+        # app/booking.py's duplicate-booking guard).
         create_booking(db, restaurant, app_schemas.BookingCreate(
-            customer_name=f"Filler {i}", phone="0", email=f"filler{i}@example.com",
+            customer_name=f"Filler {i}", phone=f"0{i}", email=f"filler{i}@example.com",
             booking_date=d, booking_time=_SAFE_TIME, party_size=15,
         ))
 

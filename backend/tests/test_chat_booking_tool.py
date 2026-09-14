@@ -145,7 +145,10 @@ def test_capacity_rejection_does_not_create_a_booking(client, monkeypatch, db, a
             "/admin/restaurant/1/bookings",
             json={
                 "customer_name": f"Big Group {i}",
-                "phone": "01234 111111",
+                # Distinct phone per filler — two different parties
+                # filling capacity, not the same customer double-booking
+                # (see app/booking.py's duplicate-booking guard).
+                "phone": f"01234 11111{i}",
                 "email": f"biggroup{i}@example.com",
                 "booking_date": d.isoformat(),
                 "booking_time": _SAFE_TIME,
