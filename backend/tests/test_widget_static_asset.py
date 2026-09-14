@@ -47,3 +47,19 @@ def test_widget_js_is_not_affected_by_the_widget_cors_middleware(client):
 def test_unknown_static_widget_path_returns_a_plain_404(client):
     response = client.get("/static/widget/does-not-exist.js")
     assert response.status_code == 404
+
+
+# --- Final QA fix A4: widget footer gains a Terms of Service link ---
+
+def test_widget_js_footer_links_to_terms_of_service_alongside_privacy_policy():
+    content = WIDGET_JS_PATH.read_text()
+    assert 'var PRIVACY_POLICY_URL = "https://restaurant-ai-agent-eight.vercel.app/privacy-policy.html";' in content
+    assert 'var TERMS_OF_SERVICE_URL = "https://restaurant-ai-agent-eight.vercel.app/terms-of-service.html";' in content
+    assert 'termsLinkEl.href = TERMS_OF_SERVICE_URL;' in content
+    assert 'termsLinkEl.textContent = "Terms of Service";' in content
+    # Same accessibility/style treatment as the pre-existing Privacy link.
+    assert 'termsLinkEl.className = "raiw-footer-link";' in content
+    assert 'termsLinkEl.tabIndex = 0;' in content
+    # The existing Privacy link itself must be unchanged.
+    assert 'privacyLinkEl.href = PRIVACY_POLICY_URL;' in content
+    assert 'privacyLinkEl.textContent = "Privacy Policy";' in content

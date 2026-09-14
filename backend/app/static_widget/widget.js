@@ -80,11 +80,14 @@
 
   var DEFAULT_ACCENT = "#2563eb";
 
-  // Platform-wide Privacy Policy link shown in every widget instance,
-  // regardless of restaurant (there is no per-restaurant policy URL in
-  // this version — see frontend/privacy-policy.html), hosted at its
-  // actual public location.
+  // Platform-wide Privacy Policy / Terms of Service links shown in every
+  // widget instance, regardless of restaurant (there is no per-restaurant
+  // policy URL in this version — see frontend/privacy-policy.html and
+  // frontend/terms-of-service.html), hosted at their actual public
+  // location (same host as PRIVACY_POLICY_URL — not a new domain
+  // decision, just a second page on it).
   var PRIVACY_POLICY_URL = "https://restaurant-ai-agent-eight.vercel.app/privacy-policy.html";
+  var TERMS_OF_SERVICE_URL = "https://restaurant-ai-agent-eight.vercel.app/terms-of-service.html";
 
   var LAUNCHER_ICON_SVG =
     '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
@@ -321,10 +324,10 @@
     sendEl.textContent = "Send";
     inputWrap.appendChild(sendEl);
 
-    // Small, unobtrusive Privacy Policy link — included in the existing
-    // focus-trap's own element query (trapFocus below) via tabindex="0",
-    // so keyboard Tab-cycling within the panel continues to work
-    // correctly without any change to that logic.
+    // Small, unobtrusive Privacy Policy / Terms of Service links —
+    // included in the existing focus-trap's own element query (trapFocus
+    // below) via tabindex="0", so keyboard Tab-cycling within the panel
+    // continues to work correctly without any change to that logic.
     var footerEl = document.createElement("div");
     footerEl.className = "raiw-footer";
     var privacyLinkEl = document.createElement("a");
@@ -335,6 +338,15 @@
     privacyLinkEl.tabIndex = 0;
     privacyLinkEl.textContent = "Privacy Policy";
     footerEl.appendChild(privacyLinkEl);
+    footerEl.appendChild(document.createTextNode(" · "));
+    var termsLinkEl = document.createElement("a");
+    termsLinkEl.className = "raiw-footer-link";
+    termsLinkEl.href = TERMS_OF_SERVICE_URL;
+    termsLinkEl.target = "_blank";
+    termsLinkEl.rel = "noopener noreferrer";
+    termsLinkEl.tabIndex = 0;
+    termsLinkEl.textContent = "Terms of Service";
+    footerEl.appendChild(termsLinkEl);
     panelEl.appendChild(footerEl);
 
     document.body.appendChild(container);

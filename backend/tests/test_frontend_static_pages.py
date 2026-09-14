@@ -627,3 +627,101 @@ def test_demo_page_title_and_description_reflect_its_demo_nature():
     content = _read("demo.html")
     assert "<title>Live Demo Chat — Jantar AI</title>" in content
     assert "See a live example of the Jantar AI restaurant chat assistant in action." in content
+
+
+# --- Final QA fixes A1-A4 (frontend/admin.html) ---
+
+def test_admin_page_is_fully_rebranded_to_jantar_ai():
+    """A1: no remaining "Restaurant AI Agent" branding anywhere in
+    admin.html -- the exact same regression-test pattern already
+    established for privacy-policy.html above."""
+    content = _read("admin.html")
+    assert "Restaurant AI Agent" not in content
+    assert "<title>Jantar AI — Admin</title>" in content
+    assert "<h1>Jantar AI</h1>" in content
+    assert "<h1>Jantar AI — Admin</h1>" in content
+
+
+def test_admin_page_links_to_terms_of_service_alongside_privacy_policy():
+    """A4: both the login-screen footer and the signed-in app footer
+    must link to Terms of Service now, without losing the existing
+    Privacy Policy link in either."""
+    content = _read("admin.html")
+    assert content.count('href="privacy-policy.html"') == 2, "expected the pre-existing Privacy Policy link in both footers"
+    assert content.count('href="terms-of-service.html"') == 2, "expected a new Terms of Service link in both footers"
+    login_footer = content[content.index('id="login-footer"'): content.index('id="login-footer"') + 200]
+    assert 'href="privacy-policy.html"' in login_footer
+    assert 'href="terms-of-service.html"' in login_footer
+    app_footer = content[content.index('id="app-footer"'): content.index('id="app-footer"') + 200]
+    assert 'href="privacy-policy.html"' in app_footer
+    assert 'href="terms-of-service.html"' in app_footer
+
+
+def test_admin_page_tables_are_wrapped_for_horizontal_scroll():
+    """A2: every <table> in admin.html (all 8, rendered from JS template
+    literals) is wrapped in a .table-scroll container, so a wide table
+    scrolls within its own box on a narrow screen instead of forcing the
+    whole page to scroll sideways."""
+    content = _read("admin.html")
+    assert ".table-scroll" in content, "expected a .table-scroll CSS rule (overflow-x: auto)"
+    table_count = content.count("<table>")
+    wrapped_count = content.count('<div class="table-scroll"><table>')
+    assert table_count == 8, f"expected exactly 8 <table> elements in admin.html, found {table_count}"
+    assert wrapped_count == table_count, (
+        f"expected every <table> to be immediately preceded by the .table-scroll wrapper, "
+        f"but only {wrapped_count} of {table_count} were"
+    )
+
+
+def test_admin_page_form_inputs_have_accessible_labels():
+    """A3: every important interactive form input that previously relied
+    on placeholder-only text now has an aria-label (or, for the 4 fields
+    that already had a real <label for>, was deliberately left alone
+    rather than given a redundant aria-label -- see the module docstring
+    on why: booking_enabled/is_active checkboxes and the
+    welcome-message/accent-color-picker fields)."""
+    content = _read("admin.html")
+    labeled_fields = [
+        'id="restaurant-select"',
+        'name="name" placeholder="Name" aria-label="Restaurant name"',
+        'name="phone" placeholder="Phone" aria-label="Phone" value="${escapeHtml(r.phone)}"',
+        'name="address" placeholder="Address" aria-label="Address"',
+        'name="email" placeholder="Email" aria-label="Email" value="${escapeHtml(r.email)}"',
+        'name="map_link" placeholder="Map link" aria-label="Map link"',
+        'name="seating_capacity" type="number" min="1" placeholder="Seating capacity" aria-label="Seating capacity" value="${r.seating_capacity}"',
+        'name="parking_notes" placeholder="Parking notes" aria-label="Parking notes"',
+        'name="category" placeholder="Category" aria-label="Category"',
+        'name="name" placeholder="Name" aria-label="Menu item name"',
+        'name="price" type="number" step="0.01" min="0" placeholder="Price" aria-label="Price"',
+        'name="dietary_tags" placeholder="Dietary tags (optional)" aria-label="Dietary tags"',
+        'name="description" placeholder="Description (optional)" aria-label="Description"',
+        'name="question" placeholder="Question" aria-label="Question"',
+        'name="answer" placeholder="Answer" aria-label="Answer"',
+        'name="customer_name" placeholder="Customer name" aria-label="Customer name"',
+        'name="booking_date" type="date" aria-label="Booking date"',
+        'name="booking_time" type="time" aria-label="Booking time"',
+        'name="party_size" type="number" min="1" max="20" placeholder="Party size" aria-label="Party size"',
+        'name="notes" placeholder="Notes (optional)" aria-label="Notes"',
+        'name="primary_language" placeholder="Primary language (e.g. en-GB)" aria-label="Primary language"',
+        'name="logo_url" type="url" placeholder="Logo URL (https://...)" aria-label="Logo URL"',
+        'id="accent-color-text" placeholder="#7a2e2e" aria-label="Accent color hex code"',
+        'name="origin" placeholder="https://www.your-restaurant.com" aria-label="Allowed origin URL"',
+        'name="label" placeholder="Label (e.g. restaurant name)" aria-label="Label"',
+        'name="restaurant_ids" multiple size="4" aria-label="Restaurants"',
+    ]
+    for fragment in labeled_fields:
+        assert fragment in content, f"expected accessible-label fragment {fragment!r} in admin.html"
+
+    # login-key specifically has both a real aria-label and its
+    # pre-existing placeholder (the placeholder alone isn't an
+    # accessible name).
+    login_key_line = content[content.index('id="login-key"') - 60: content.index('id="login-key"') + 100]
+    assert 'aria-label="Admin API key"' in login_key_line
+
+    # The 4 fields that already had a real <label for="..."> must NOT
+    # have gained a redundant aria-label alongside it.
+    assert 'id="widget-welcome-message"' in content
+    welcome_line = content[content.index('id="widget-welcome-message"'): content.index('id="widget-welcome-message"') + 200]
+    assert "aria-label" not in welcome_line
+    accent_picker_line = content[content.index('id="accent-color-picker"'): content.index('id="accent-color-picker"') + 100]
+    assert "aria-label" not in accent_picker_line

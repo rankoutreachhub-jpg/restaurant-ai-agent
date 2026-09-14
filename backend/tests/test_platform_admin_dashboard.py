@@ -201,14 +201,18 @@ def test_admin_users_table_has_clear_columns_and_no_plaintext_key(
     page.wait_for_selector("#app-view", state="visible", timeout=5000)
     _open_platform_tab(page)
 
-    headers = page.locator("h2:has-text('Admin users') + table thead th").all_inner_texts()
+    # Final QA fix A2 wraps each table in a `.table-scroll` div (for
+    # horizontal-scroll safety on narrow screens), so the table is no
+    # longer the h2's immediate next sibling -- "+ div" bridges that one
+    # extra layer, same adjacency assumption otherwise.
+    headers = page.locator("h2:has-text('Admin users') + div table thead th").all_inner_texts()
     assert headers == ["#", "Label", "Status", "Restaurant(s)", "Actions", "Access"]
 
     # This module's other tests each create their own admin user against
     # the same long-lived module-scoped backend, so the table holds more
     # than just this test's row by now -- find this one specifically
     # rather than assuming it's first.
-    row_text = page.locator("h2:has-text('Admin users') + table tbody tr", has_text="Table columns test").inner_text()
+    row_text = page.locator("h2:has-text('Admin users') + div table tbody tr", has_text="Table columns test").inner_text()
     assert "Active" in row_text
     assert str(second_restaurant) in row_text
 

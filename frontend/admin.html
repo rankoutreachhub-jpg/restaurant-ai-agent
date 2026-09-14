@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Restaurant AI Agent — Admin Dashboard</title>
+<title>Jantar AI — Admin</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
@@ -149,6 +149,16 @@
     overflow: hidden;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06);
     margin-bottom: 20px;
+  }
+  /* Lets a wide table scroll horizontally within its own box on a
+     narrow screen instead of forcing the whole page to scroll
+     sideways — a no-op when the table already fits. */
+  .table-scroll {
+    overflow-x: auto;
+    margin-bottom: 20px;
+  }
+  .table-scroll table {
+    margin-bottom: 0;
   }
   th, td {
     text-align: left;
@@ -301,20 +311,20 @@
 
 <div id="login-view">
   <div id="login-box">
-    <h1>Restaurant AI Agent</h1>
+    <h1>Jantar AI</h1>
     <p>Enter your admin API key to continue.</p>
-    <input type="password" id="login-key" placeholder="X-Admin-API-Key" autocomplete="off">
+    <input type="password" id="login-key" placeholder="X-Admin-API-Key" aria-label="Admin API key" autocomplete="off">
     <button id="login-btn">Sign in</button>
     <div id="login-error"></div>
-    <div id="login-footer"><a href="privacy-policy.html">Privacy Policy</a></div>
+    <div id="login-footer"><a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms-of-service.html">Terms of Service</a></div>
   </div>
 </div>
 
 <div id="app-view">
   <header>
-    <h1>Restaurant AI Agent — Admin</h1>
+    <h1>Jantar AI — Admin</h1>
     <span class="badge" id="role-badge"></span>
-    <select id="restaurant-select"></select>
+    <select id="restaurant-select" aria-label="Select restaurant"></select>
     <div class="spacer"></div>
     <button id="logout-btn">Sign out</button>
   </header>
@@ -344,7 +354,7 @@
     <div class="panel" id="panel-subscription"></div>
     <div class="panel" id="panel-platform"></div>
   </main>
-  <div id="app-footer"><a href="privacy-policy.html">Privacy Policy</a></div>
+  <div id="app-footer"><a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms-of-service.html">Terms of Service</a></div>
 </div>
 
 <script>
@@ -550,19 +560,19 @@ async function loadRestaurantTab() {
       <h2>Restaurant profile</h2>
       <form id="restaurant-form">
         <div class="form-row">
-          <input name="name" placeholder="Name" value="${escapeHtml(r.name)}" required>
-          <input name="phone" placeholder="Phone" value="${escapeHtml(r.phone)}" required>
+          <input name="name" placeholder="Name" aria-label="Restaurant name" value="${escapeHtml(r.name)}" required>
+          <input name="phone" placeholder="Phone" aria-label="Phone" value="${escapeHtml(r.phone)}" required>
         </div>
         <div class="form-row">
-          <input name="address" placeholder="Address" value="${escapeHtml(r.address)}" required>
-          <input name="email" placeholder="Email" value="${escapeHtml(r.email)}" required>
+          <input name="address" placeholder="Address" aria-label="Address" value="${escapeHtml(r.address)}" required>
+          <input name="email" placeholder="Email" aria-label="Email" value="${escapeHtml(r.email)}" required>
         </div>
         <div class="form-row">
-          <input name="map_link" placeholder="Map link" value="${escapeHtml(r.map_link || "")}">
-          <input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" value="${r.seating_capacity}" required>
+          <input name="map_link" placeholder="Map link" aria-label="Map link" value="${escapeHtml(r.map_link || "")}">
+          <input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" aria-label="Seating capacity" value="${r.seating_capacity}" required>
         </div>
         <div class="form-row">
-          <textarea name="parking_notes" placeholder="Parking notes" rows="2">${escapeHtml(r.parking_notes || "")}</textarea>
+          <textarea name="parking_notes" placeholder="Parking notes" aria-label="Parking notes" rows="2">${escapeHtml(r.parking_notes || "")}</textarea>
         </div>
         <button type="submit">Save changes</button>
       </form>
@@ -601,22 +611,22 @@ async function loadMenuTab() {
     </tr>`).join("");
 
   panel.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>Category</th><th>Name</th><th>Description</th><th>Price</th><th>Tags</th><th></th></tr></thead>
       <tbody>${rows || "<tr><td colspan='6' class='muted'>No menu items yet.</td></tr>"}</tbody>
-    </table>
+    </table></div>
     <div class="card">
       <h2>Add menu item</h2>
       <form id="menu-form">
         <div class="form-row">
-          <input name="category" placeholder="Category" required>
-          <input name="name" placeholder="Name" required>
+          <input name="category" placeholder="Category" aria-label="Category" required>
+          <input name="name" placeholder="Name" aria-label="Menu item name" required>
         </div>
         <div class="form-row">
-          <input name="price" type="number" step="0.01" min="0" placeholder="Price" required>
-          <input name="dietary_tags" placeholder="Dietary tags (optional)">
+          <input name="price" type="number" step="0.01" min="0" placeholder="Price" aria-label="Price" required>
+          <input name="dietary_tags" placeholder="Dietary tags (optional)" aria-label="Dietary tags">
         </div>
-        <div class="form-row"><textarea name="description" placeholder="Description (optional)" rows="2"></textarea></div>
+        <div class="form-row"><textarea name="description" placeholder="Description (optional)" aria-label="Description" rows="2"></textarea></div>
         <button type="submit">Add item</button>
       </form>
     </div>`;
@@ -669,10 +679,10 @@ async function loadHoursTab() {
   }).join("");
 
   panel.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>Day</th><th>Closed</th><th>Open</th><th>Close</th><th></th></tr></thead>
       <tbody>${rows}</tbody>
-    </table>
+    </table></div>
     <p class="muted">"Create" adds a day that doesn't have hours yet (e.g. a newly onboarded restaurant); "Save" updates a day that already exists.</p>`;
 
   // The disabled state above only reflects what was last saved. Wire the
@@ -732,15 +742,15 @@ async function loadFaqsTab() {
     </tr>`).join("");
 
   panel.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>Question</th><th>Answer</th><th></th></tr></thead>
       <tbody>${rows || "<tr><td colspan='3' class='muted'>No FAQs yet.</td></tr>"}</tbody>
-    </table>
+    </table></div>
     <div class="card">
       <h2>Add FAQ</h2>
       <form id="faq-form">
-        <div class="form-row"><input name="question" placeholder="Question" required></div>
-        <div class="form-row"><textarea name="answer" placeholder="Answer" rows="2" required></textarea></div>
+        <div class="form-row"><input name="question" placeholder="Question" aria-label="Question" required></div>
+        <div class="form-row"><textarea name="answer" placeholder="Answer" aria-label="Answer" rows="2" required></textarea></div>
         <button type="submit">Add FAQ</button>
       </form>
     </div>`;
@@ -790,24 +800,24 @@ async function loadBookingsTab() {
     </tr>`).join("");
 
   panel.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Date/time</th><th>Party</th><th>Status</th><th></th></tr></thead>
       <tbody>${rows || "<tr><td colspan='7' class='muted'>No bookings yet.</td></tr>"}</tbody>
-    </table>
+    </table></div>
     <div class="card">
       <h2>Create booking</h2>
       <form id="booking-form">
         <div class="form-row">
-          <input name="customer_name" placeholder="Customer name" required>
-          <input name="phone" placeholder="Phone" required>
-          <input name="email" type="email" placeholder="Email" required>
+          <input name="customer_name" placeholder="Customer name" aria-label="Customer name" required>
+          <input name="phone" placeholder="Phone" aria-label="Phone" required>
+          <input name="email" type="email" placeholder="Email" aria-label="Email" required>
         </div>
         <div class="form-row">
-          <input name="booking_date" type="date" required>
-          <input name="booking_time" type="time" required>
-          <input name="party_size" type="number" min="1" max="20" placeholder="Party size" required>
+          <input name="booking_date" type="date" aria-label="Booking date" required>
+          <input name="booking_time" type="time" aria-label="Booking time" required>
+          <input name="party_size" type="number" min="1" max="20" placeholder="Party size" aria-label="Party size" required>
         </div>
-        <div class="form-row"><textarea name="notes" placeholder="Notes (optional)" rows="2"></textarea></div>
+        <div class="form-row"><textarea name="notes" placeholder="Notes (optional)" aria-label="Notes" rows="2"></textarea></div>
         <button type="submit">Create booking</button>
       </form>
     </div>`;
@@ -861,10 +871,10 @@ async function loadConversationsTab() {
     </tr>`).join("");
 
   panel.innerHTML = `
-    <table>
+    <div class="table-scroll"><table>
       <thead><tr><th>#</th><th>Channel</th><th>Started</th><th>Last activity</th><th></th></tr></thead>
       <tbody>${rows || "<tr><td colspan='5' class='muted'>No conversations yet.</td></tr>"}</tbody>
-    </table>
+    </table></div>
     <div id="conversation-thread"></div>`;
 }
 
@@ -965,13 +975,13 @@ function renderWidgetPanel(panel, config) {
           <textarea id="widget-welcome-message" name="welcome_message" placeholder="Hiya! Welcome to..." rows="2">${escapeHtml(config.welcome_message || "")}</textarea>
         </div>
         <div class="form-row">
-          <input name="primary_language" placeholder="Primary language (e.g. en-GB)" value="${escapeHtml(config.primary_language || "")}">
-          <input name="logo_url" type="url" placeholder="Logo URL (https://...)" value="${escapeHtml(config.logo_url || "")}">
+          <input name="primary_language" placeholder="Primary language (e.g. en-GB)" aria-label="Primary language" value="${escapeHtml(config.primary_language || "")}">
+          <input name="logo_url" type="url" placeholder="Logo URL (https://...)" aria-label="Logo URL" value="${escapeHtml(config.logo_url || "")}">
         </div>
         <div class="form-row accent-color-row">
           <label for="accent-color-picker" class="muted">Accent color</label>
           <input type="color" id="accent-color-picker" value="${accentValue}">
-          <input type="text" name="accent_color" id="accent-color-text" placeholder="#7a2e2e" value="${escapeHtml(config.accent_color || "")}">
+          <input type="text" name="accent_color" id="accent-color-text" placeholder="#7a2e2e" aria-label="Accent color hex code" value="${escapeHtml(config.accent_color || "")}">
         </div>
         <div class="form-row">
           <label><input type="checkbox" name="is_active" ${config.is_active ? "checked" : ""}> Active</label>
@@ -989,13 +999,13 @@ function renderWidgetPanel(panel, config) {
           ? "No origins configured yet — the widget will refuse every cross-origin request until you add at least one."
           : "Only these origins may embed this widget."}
       </p>
-      <table>
+      <div class="table-scroll"><table>
         <thead><tr><th>Origin</th><th>Added</th><th></th></tr></thead>
         <tbody>${originRows || "<tr><td colspan='3' class='muted'>No origins yet.</td></tr>"}</tbody>
-      </table>
+      </table></div>
       <form id="add-origin-form">
         <div class="form-row">
-          <input name="origin" placeholder="https://www.your-restaurant.com" required>
+          <input name="origin" placeholder="https://www.your-restaurant.com" aria-label="Allowed origin URL" required>
           <button type="submit">Add origin</button>
         </div>
       </form>
@@ -1267,35 +1277,35 @@ async function loadPlatformTab() {
     <div id="key-reveal-slot"></div>
     <div class="card">
       <h2>Restaurants</h2>
-      <table>
+      <div class="table-scroll"><table>
         <thead><tr><th>#</th><th>Name</th><th>Seats</th><th>Plan</th><th>Subscription status</th><th>Change plan/status</th><th>Readiness</th></tr></thead>
         <tbody>${restaurantRows}</tbody>
-      </table>
+      </table></div>
       <h2>Onboard a new restaurant</h2>
       <form id="onboard-form">
         <div class="form-row">
-          <input name="name" placeholder="Name" required>
-          <input name="phone" placeholder="Phone" required>
+          <input name="name" placeholder="Name" aria-label="Restaurant name" required>
+          <input name="phone" placeholder="Phone" aria-label="Phone" required>
         </div>
         <div class="form-row">
-          <input name="address" placeholder="Address" required>
-          <input name="email" type="email" placeholder="Email" required>
+          <input name="address" placeholder="Address" aria-label="Address" required>
+          <input name="email" type="email" placeholder="Email" aria-label="Email" required>
         </div>
-        <div class="form-row"><input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" required></div>
+        <div class="form-row"><input name="seating_capacity" type="number" min="1" placeholder="Seating capacity" aria-label="Seating capacity" required></div>
         <button type="submit">Onboard restaurant</button>
       </form>
     </div>
     <div class="card">
       <h2>Admin users (restaurant-scoped keys)</h2>
-      <table>
+      <div class="table-scroll"><table>
         <thead><tr><th>#</th><th>Label</th><th>Status</th><th>Restaurant(s)</th><th>Actions</th><th>Access</th></tr></thead>
         <tbody>${adminUserRows || "<tr><td colspan='6' class='muted'>No admin users yet.</td></tr>"}</tbody>
-      </table>
+      </table></div>
       <h2>Create admin user</h2>
       <form id="create-admin-user-form">
-        <div class="form-row"><input name="label" placeholder="Label (e.g. restaurant name)" required></div>
+        <div class="form-row"><input name="label" placeholder="Label (e.g. restaurant name)" aria-label="Label" required></div>
         <div class="form-row">
-          <select name="restaurant_ids" multiple size="4" required>
+          <select name="restaurant_ids" multiple size="4" aria-label="Restaurants" required>
             ${allRestaurants.map(r => `<option value="${r.id}">${escapeHtml(r.name)} (#${r.id})</option>`).join("")}
           </select>
         </div>
