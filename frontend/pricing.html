@@ -300,34 +300,36 @@
   <div id="pricing-footer">
     Jantar AI · <a href="terms-of-service.html">Terms of Service</a> ·
     <a href="privacy-policy.html">Privacy Policy</a> ·
+    <a href="refund-policy.html">Refund Policy</a> ·
     <a href="mailto:rankoutreachhub@gmail.com">rankoutreachhub@gmail.com</a>
   </div>
 </div>
 
+<script src="/api/paddle-config.js"></script>
 <script>
 "use strict";
 
 // =========================================================
 // Paddle checkout configuration
 // =========================================================
-// These three values are specific to the live Jantar AI Paddle account
-// and are NOT committed here — fill them in on deploy, the same way
-// admin.html/demo.html's own API_BASE/API_URL constants are filled in
-// per-environment (see those files). A Paddle client-side token is
-// designed by Paddle to be used in frontend code (see
-// https://developer.paddle.com/build/transactions/user-client-tokens) —
-// it is not a secret API key and must never be confused with one; no
+// The live Paddle client-side token is NEVER committed to Git. It is
+// supplied at runtime by the /api/paddle-config.js Vercel serverless
+// function (see frontend/api/paddle-config.js), which reads it from the
+// PADDLE_CLIENT_TOKEN environment variable configured directly in the
+// Vercel project (Project Settings > Environment Variables) and sets
+// window.PADDLE_CLIENT_TOKEN before this script tag runs. A Paddle
+// client-side token is designed by Paddle to be used in frontend code
+// (see https://developer.paddle.com/build/transactions/user-client-tokens)
+// — it is not a secret API key and must never be confused with one; no
 // server-side Paddle API key/secret belongs anywhere in this file.
-//
-//   PADDLE_CLIENT_TOKEN — Paddle Dashboard > Developer Tools > Authentication
-//                         > Client-side tokens (the LIVE token, not sandbox).
-//   PADDLE_PRICE_IDS    — Paddle Dashboard > Catalog > Products > (each
-//                         product's) Prices tab — the id of each plan's
-//                         existing MONTHLY price (starts "pri_"), not the
-//                         product id (starts "pro_"). Do not create new
-//                         products/prices here; these must reference the
-//                         ones that already exist in the live account.
-var PADDLE_CLIENT_TOKEN = "live_REPLACE_WITH_YOUR_PADDLE_CLIENT_TOKEN";
+var PADDLE_CLIENT_TOKEN = window.PADDLE_CLIENT_TOKEN || "";
+
+//   PADDLE_PRICE_IDS — Paddle Dashboard > Catalog > Products > (each
+//                      product's) Prices tab — the id of each plan's
+//                      existing MONTHLY price (starts "pri_"), not the
+//                      product id (starts "pro_"). Do not create new
+//                      products/prices here; these must reference the
+//                      ones that already exist in the live account.
 // Real, live Paddle monthly price ids for the three approved plans —
 // these reference existing Paddle prices; nothing is created here.
 var PADDLE_PRICE_IDS = {
@@ -340,7 +342,7 @@ var PADDLE_PRICE_IDS = {
 // finished loading. No Paddle.Environment.set(...) call is made here —
 // that call is only for sandbox testing; a live client token always
 // checks out against the live Paddle account by default.
-if (window.Paddle) {
+if (window.Paddle && PADDLE_CLIENT_TOKEN) {
   Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
 }
 
@@ -348,9 +350,10 @@ function startPaddleCheckout(planKey) {
   var errorEl = document.getElementById("checkout-error");
   errorEl.classList.remove("visible");
 
-  if (!window.Paddle || typeof Paddle.Checkout === "undefined") {
-    // Most likely an ad-blocker/privacy extension blocked paddle.js, or
-    // the network request for it failed -- fail visibly, never silently,
+  if (!window.Paddle || typeof Paddle.Checkout === "undefined" || !PADDLE_CLIENT_TOKEN) {
+    // Most likely an ad-blocker/privacy extension blocked paddle.js, the
+    // network request for it failed, or the runtime config endpoint has
+    // not supplied a live token yet -- fail visibly, never silently,
     // and never pretend a checkout happened.
     errorEl.classList.add("visible");
     return;

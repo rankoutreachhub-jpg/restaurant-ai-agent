@@ -14,6 +14,14 @@ network request via page.route(...) rather than relying on it
 incidentally succeeding or failing -- deterministic either way, and
 exactly mirrors what a real visitor with an ad-blocker would see.
 
+The live Paddle client-side token is supplied at runtime by a Vercel
+serverless function (frontend/api/paddle-config.js), not by a plain
+static file, so it cannot be served by the plain HTTP server this
+module spins up for frontend/. The `page` fixture blocks that endpoint
+by default (mirroring "no live token configured yet"); tests that need
+a working checkout explicitly stub it with a fake token via
+_stub_paddle_runtime_config(page).
+
 Optional infrastructure: skipped entirely if playwright/Chromium aren't
 available, same convention as tests/test_widget_browser.py.
 """
@@ -50,6 +58,23 @@ _PADDLE_STUB = """
 """
 
 
+_FAKE_LIVE_TOKEN_FOR_TESTS = "test_stub_paddle_client_token"
+
+
+def _stub_paddle_runtime_config(page, token=_FAKE_LIVE_TOKEN_FOR_TESTS):
+    """Overrides the `page` fixture's default block of /api/paddle-config.js
+    with a fake token, standing in for the real Vercel serverless
+    function/env var in production."""
+    page.route(
+        "**/api/paddle-config.js",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/javascript",
+            body=f"window.PADDLE_CLIENT_TOKEN = {token!r};",
+        ),
+    )
+
+
 def _free_port():
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
@@ -82,12 +107,18 @@ def browser():
 def page(browser):
     pg = browser.new_page()
     pg.route("https://cdn.paddle.com/**", lambda route: route.abort())
+    # /api/paddle-config.js is a Vercel serverless function in production,
+    # not a static file the plain HTTP server above can serve -- block it
+    # by default (mirroring "no live token configured"); tests that need
+    # checkout to actually work call _stub_paddle_runtime_config(page).
+    pg.route("**/api/paddle-config.js", lambda route: route.abort())
     yield pg
     pg.close()
 
 
 def test_clicking_a_plan_button_calls_paddle_checkout_with_that_plans_own_price_id(page, pricing_page_server):
     page.add_init_script(_PADDLE_STUB)
+    _stub_paddle_runtime_config(page)
     page.goto(f"{pricing_page_server}/pricing.html")
 
     page.click("button[data-plan='growth']")
@@ -100,6 +131,7 @@ def test_clicking_a_plan_button_calls_paddle_checkout_with_that_plans_own_price_
 
 def test_each_plan_button_uses_its_own_distinct_price_id(page, pricing_page_server):
     page.add_init_script(_PADDLE_STUB)
+    _stub_paddle_runtime_config(page)
     page.goto(f"{pricing_page_server}/pricing.html")
 
     for plan in ("starter", "growth", "pro"):
@@ -112,11 +144,13 @@ def test_each_plan_button_uses_its_own_distinct_price_id(page, pricing_page_serv
 
 def test_paddle_initialize_is_called_with_the_client_token_before_any_checkout(page, pricing_page_server):
     page.add_init_script(_PADDLE_STUB)
+    _stub_paddle_runtime_config(page)
     page.goto(f"{pricing_page_server}/pricing.html")
 
     init_token = page.evaluate("window.__paddleInitToken")
     expected_token = page.evaluate("PADDLE_CLIENT_TOKEN")
     assert init_token == expected_token
+    assert init_token == _FAKE_LIVE_TOKEN_FOR_TESTS
 
 
 def test_graceful_fallback_shown_when_paddle_fails_to_load(page, pricing_page_server):

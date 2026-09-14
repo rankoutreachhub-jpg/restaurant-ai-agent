@@ -96,12 +96,9 @@ def test_pricing_page_loads_paddle_js_from_the_official_cdn():
 def test_pricing_page_initializes_paddle_with_a_client_side_token_variable():
     """A Paddle CLIENT-SIDE token is safe for frontend code (see
     https://developer.paddle.com/build/transactions/user-client-tokens)
-    and is intentionally not a real committed secret here -- the
-    operator fills in the real live token at deploy time, the same way
-    admin.html/demo.html's own API_BASE/API_URL constants are filled in
-    per-environment. This test checks the INTEGRATION is wired
-    correctly, not the literal placeholder text (which is expected to
-    be replaced)."""
+    and is intentionally never a committed secret here -- it is fetched
+    at runtime from /api/paddle-config.js (see the dedicated tests
+    below). This test checks the INTEGRATION is wired correctly."""
     content = _read("pricing.html")
     assert "var PADDLE_CLIENT_TOKEN = " in content
     assert "Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN })" in content
@@ -138,13 +135,34 @@ def test_pricing_page_uses_the_exact_real_live_price_ids_not_placeholders():
     assert len(set(REAL_PADDLE_PRICE_IDS.values())) == 3, "each plan must have a distinct price id"
 
 
-def test_pricing_page_client_token_placeholder_is_intentionally_still_unfilled():
-    """The live client-side token is supplied through the existing
-    deployment configuration mechanism, not committed to source control
-    -- this locks in that the placeholder is still exactly that (a
-    placeholder), never a real-looking committed secret."""
+def test_pricing_page_fetches_the_live_client_token_at_runtime_not_from_git():
+    """The live Paddle client-side token must never be committed to Git.
+    pricing.html instead loads it at runtime from a Vercel serverless
+    function (frontend/api/paddle-config.js -- see its dedicated tests
+    below), which sets window.PADDLE_CLIENT_TOKEN before the inline
+    config script below it runs."""
     content = _read("pricing.html")
-    assert 'var PADDLE_CLIENT_TOKEN = "live_REPLACE_WITH_YOUR_PADDLE_CLIENT_TOKEN";' in content
+    assert '<script src="/api/paddle-config.js"></script>' in content
+    assert content.index('<script src="/api/paddle-config.js"></script>') < content.index(
+        "Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN })"
+    ), "the runtime-config script must load before Paddle.Initialize is called"
+    assert "var PADDLE_CLIENT_TOKEN = window.PADDLE_CLIENT_TOKEN" in content
+    # No hardcoded, real-looking or placeholder live token literal anywhere.
+    assert "live_" not in content
+
+
+def test_pricing_page_paddle_config_endpoint_reads_env_var_and_hardcodes_nothing():
+    """frontend/api/paddle-config.js is the ONLY place the live client
+    token is supposed to reach the browser from -- it must read it from
+    an environment variable (set in the Vercel project, never in Git),
+    never hardcode a token value, and never touch a server-side Paddle
+    API key/secret."""
+    content = _read("api/paddle-config.js")
+    assert "process.env.PADDLE_CLIENT_TOKEN" in content
+    assert "live_" not in content
+    assert "PADDLE_API_KEY" not in content
+    assert "PADDLE_SECRET" not in content
+    assert "apikey_" not in content.lower()
 
 
 def test_pricing_page_checkout_opens_in_overlay_mode_for_the_selected_price():
@@ -587,11 +605,21 @@ PUBLIC_SEO_PAGES = {
         "robots": "noindex, follow",
         "canonical": "https://jantarai.com/demo.html",
     },
+    "refund-policy.html": {
+        "title": "Refund Policy — Jantar AI",
+        "description": (
+            "Refund Policy for Jantar AI: how subscription refund requests for "
+            "Paddle-billed plans are handled."
+        ),
+        "og_title": "Refund Policy — Jantar AI",
+        "robots": "index, follow",
+        "canonical": "https://jantarai.com/refund-policy.html",
+    },
 }
 
 PUBLIC_INDEXABLE_PAGES = list(PUBLIC_SEO_PAGES.keys())
 
-ALL_SIX_PAGES = list(PUBLIC_SEO_PAGES.keys()) + ["admin.html"]
+ALL_SEVEN_PAGES = list(PUBLIC_SEO_PAGES.keys()) + ["admin.html"]
 
 
 def test_meta_descriptions_are_present_and_unique_across_public_pages():
@@ -675,7 +703,7 @@ def test_admin_page_still_has_no_canonical_or_og_url():
 def test_no_invented_og_image_anywhere():
     """No image asset exists in this repo -- og:image must not be
     invented or pointed at a placeholder/remote URL."""
-    for page in ALL_SIX_PAGES:
+    for page in ALL_SEVEN_PAGES:
         assert "og:image" not in _read(page), page
         assert "twitter:image" not in _read(page), page
 
@@ -705,7 +733,8 @@ def test_robots_txt_does_not_block_public_pages():
     ]
     assert disallowed_paths == ["/admin.html"]
     for public_path in ("/", "/index.html", "/pricing.html", "/demo.html",
-                         "/terms-of-service.html", "/privacy-policy.html"):
+                         "/terms-of-service.html", "/privacy-policy.html",
+                         "/refund-policy.html"):
         assert public_path not in disallowed_paths
 
 
@@ -730,7 +759,7 @@ def test_sitemap_exists_and_is_well_formed_xml():
     assert root.tag == "{http://www.sitemaps.org/schemas/sitemap/0.9}urlset"
 
 
-def test_sitemap_contains_exactly_the_five_public_pages_and_nothing_else():
+def test_sitemap_contains_exactly_the_six_public_pages_and_nothing_else():
     import xml.etree.ElementTree as ET
     ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
     root = ET.fromstring(_read_sitemap())
@@ -741,6 +770,7 @@ def test_sitemap_contains_exactly_the_five_public_pages_and_nothing_else():
         "https://jantarai.com/demo.html",
         "https://jantarai.com/privacy-policy.html",
         "https://jantarai.com/terms-of-service.html",
+        "https://jantarai.com/refund-policy.html",
     }
 
 
@@ -816,7 +846,7 @@ def test_favicon_design_matches_the_approved_artwork():
 
 
 def test_favicon_referenced_consistently_from_every_page():
-    for page in ALL_SIX_PAGES:
+    for page in ALL_SEVEN_PAGES:
         content = _read(page)
         assert '<link rel="icon" type="image/svg+xml" href="favicon.svg">' in content, \
             f"{page} should reference the local SVG favicon"
@@ -929,3 +959,75 @@ def test_admin_page_form_inputs_have_accessible_labels():
     assert "aria-label" not in welcome_line
     accent_picker_line = content[content.index('id="accent-color-picker"'): content.index('id="accent-color-picker"') + 100]
     assert "aria-label" not in accent_picker_line
+
+
+# --- Refund Policy (frontend/refund-policy.html -- required for Paddle's
+# live domain-approval review, which checks that the site links to a
+# refund policy) ---
+
+def test_refund_policy_page_exists_with_jantar_ai_branding():
+    content = _read("refund-policy.html")
+    assert "<title>" in content
+    assert "Jantar AI" in content
+
+
+def test_refund_policy_page_is_public_and_indexable():
+    """Must be a real, crawlable public legal page -- not noindex like
+    admin.html or checkout-success.html."""
+    content = _read("refund-policy.html")
+    assert '<meta name="robots" content="index, follow">' in content
+    assert '<link rel="canonical" href="https://jantarai.com/refund-policy.html">' in content
+
+
+def test_refund_policy_page_contains_contact_email():
+    assert "rankoutreachhub@gmail.com" in _read("refund-policy.html")
+
+
+def test_pricing_page_links_to_refund_policy():
+    """Paddle's live domain-approval review specifically checks that the
+    site links to a refund policy from the checkout-facing page."""
+    assert 'href="refund-policy.html"' in _read("pricing.html")
+
+
+def test_refund_policy_reachable_from_other_public_legal_pages():
+    for page in ("index.html", "terms-of-service.html", "privacy-policy.html"):
+        assert 'href="refund-policy.html"' in _read(page), page
+
+
+def test_refund_policy_does_not_invent_legal_identity_or_guarantees():
+    """No fabricated company registration number, legal entity, physical
+    address, DPO, jurisdiction-specific guarantee, refund timeframe, or
+    automated refund/cancellation behavior that doesn't exist -- only the
+    same honest "not currently published" wording established for the
+    Privacy Policy and Terms of Service."""
+    content = _read("refund-policy.html")
+    assert "Not currently published" in content
+    for forbidden in ("Companies House", "Company No.", "Registration No.", "DPO", "Data Protection Officer"):
+        assert forbidden not in content
+    lowered = content.lower()
+    for forbidden in (
+        "guaranteed refund", "money-back guarantee", "money back guarantee",
+        "automatically refunded", "instant refund", "within 30 days",
+        "within 14 days", "within 7 days", "cooling-off period",
+    ):
+        assert forbidden not in lowered, forbidden
+    assert "registered business address: not currently published" in lowered
+
+
+def test_refund_policy_states_non_refundable_position_with_exceptions():
+    content = _read("refund-policy.html").lower()
+    assert "non-refundable" in content
+    assert "paddle" in content
+    assert "reviewed individually" in content
+
+
+def test_admin_page_still_excluded_from_sitemap_and_remains_noindex():
+    """Regression guard: adding the new refund-policy.html page/link must
+    not change admin.html's own noindex/sitemap-exclusion status."""
+    assert "admin" not in _read_sitemap().lower()
+    assert '<meta name="robots" content="noindex, nofollow">' in _read("admin.html")
+
+
+def test_checkout_success_page_still_noindex_nofollow():
+    """Regression guard: same as above, for checkout-success.html."""
+    assert '<meta name="robots" content="noindex, nofollow">' in _read("checkout-success.html")
