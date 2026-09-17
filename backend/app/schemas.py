@@ -361,6 +361,7 @@ class SubscriptionAdminOut(BaseModel):
     billing_provider: Optional[str] = None
     provider_customer_id: Optional[str] = None
     provider_subscription_id: Optional[str] = None
+    provider_price_id: Optional[str] = None
     current_period_end: Optional[datetime] = None
     cancel_at_period_end: bool
     created_at: datetime

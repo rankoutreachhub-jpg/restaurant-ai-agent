@@ -391,6 +391,14 @@ class Subscription(Base):
     billing_provider = Column(String, nullable=True)
     provider_customer_id = Column(String, nullable=True, index=True)
     provider_subscription_id = Column(String, nullable=True, index=True)
+    # The specific provider price/plan identifier this subscription is
+    # currently on (e.g. Paddle's "pri_..." id) -- added for Jantar SaaS
+    # Phase 4 (Paddle webhook provisioning, see app/paddle_webhooks.py),
+    # which is also what maps to plan_code via
+    # app/paddle_webhooks.py:PADDLE_PRICE_ID_TO_PLAN_CODE. Nullable for
+    # the same reason billing_provider is: every restaurant already has a
+    # row before any provider is wired.
+    provider_price_id = Column(String, nullable=True)
     current_period_end = Column(DateTime, nullable=True)
     cancel_at_period_end = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -419,6 +427,56 @@ class SubscriptionEvent(Base):
     id = Column(Integer, primary_key=True, index=True)
     restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=False, index=True)
     event_type = Column(String, nullable=False)
+    payload = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    restaurant = relationship("Restaurant")
+
+
+class PaddleWebhookEvent(Base):
+    """
+    Raw Paddle webhook notification log (Jantar SaaS Phase 4 — Paddle
+    webhook provisioning; see app/paddle_webhooks.py). One row per
+    notification Paddle delivers, keyed by Paddle's own unique event_id
+    so a redelivered notification (Paddle retries any non-2xx response)
+    is recognised and never reapplied.
+
+    Deliberately a SEPARATE table from SubscriptionEvent, not a reuse of
+    it: SubscriptionEvent.restaurant_id is NOT NULL because it is a
+    restaurant's own audit trail, but a Paddle notification can arrive
+    with no deterministic way (yet) to know which restaurant, if any, it
+    belongs to — this codebase has no self-signup/customer-account flow
+    and the current Paddle Checkout call (frontend/pricing.html) does not
+    pass any customData, so restaurant_id is nullable here for exactly
+    that reason (see app/paddle_webhooks.py's module docstring for the
+    full explanation and what a future phase needs to add to close this
+    gap). Once a notification IS resolved to a restaurant, a matching
+    SubscriptionEvent row is also written (app/paddle_webhooks.py), so a
+    restaurant's own event history never needs to know this table
+    exists.
+
+    occurred_at (Paddle's own event timestamp, distinct from created_at
+    here) and provider_subscription_id together let
+    app/paddle_webhooks.py detect a notification that describes an
+    OLDER subscription state than one already applied, and skip
+    re-applying it — Paddle does not guarantee webhook delivery order.
+
+    payload is the raw JSON body, retained for audit/support/debugging,
+    exactly like SubscriptionEvent.payload.
+    """
+    __tablename__ = "paddle_webhook_events"
+    __table_args__ = (
+        Index("ix_paddle_webhook_events_provider_subscription_id_occurred_at",
+              "provider_subscription_id", "occurred_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(String, nullable=False, unique=True, index=True)
+    event_type = Column(String, nullable=False)
+    occurred_at = Column(DateTime, nullable=True)
+    provider_subscription_id = Column(String, nullable=True, index=True)
+    restaurant_id = Column(Integer, ForeignKey("restaurants.id"), nullable=True, index=True)
+    applied = Column(Boolean, nullable=False, default=False)
     payload = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

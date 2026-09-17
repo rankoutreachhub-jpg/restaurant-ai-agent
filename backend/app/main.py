@@ -22,7 +22,7 @@ from . import config
 from .database import SessionLocal, get_db
 from .logging_config import configure_logging
 from .monitoring import init_sentry
-from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget
+from .routers import chat, admin, bookings, platform_admin, conversations, whatsapp, widget, paddle
 from .security_headers import security_headers_middleware
 from .seed_data import seed_if_empty
 from .widget_cors import widget_cors_middleware
@@ -123,6 +123,7 @@ app.include_router(platform_admin.router)
 app.include_router(conversations.router)
 app.include_router(whatsapp.router)
 app.include_router(widget.router)
+app.include_router(paddle.router)
 
 
 # Serves the embeddable widget.js (Stage 4 Phase E) — deliberately

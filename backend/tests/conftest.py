@@ -24,6 +24,13 @@ os.environ.setdefault("WHATSAPP_VERIFY_TOKEN", "test-whatsapp-verify-token")
 os.environ.setdefault("WHATSAPP_APP_SECRET", "test-whatsapp-app-secret-not-real")
 os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test-whatsapp-access-token-not-real")
 
+# Jantar SaaS Phase 4 (Paddle webhook provisioning): same pattern as the
+# WhatsApp secret above — a fixed, known-in-tests value, never a real
+# Paddle credential. Tests that need a validly-signed webhook request
+# compute the HMAC themselves using PADDLE_WEBHOOK_SECRET (see
+# tests/test_paddle_webhooks.py).
+os.environ.setdefault("PADDLE_WEBHOOK_SECRET", "test-paddle-webhook-secret-not-real")
+
 _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"

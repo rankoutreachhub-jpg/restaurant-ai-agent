@@ -150,6 +150,23 @@ WHATSAPP_ACCESS_TOKEN = os.getenv("WHATSAPP_ACCESS_TOKEN", "").strip()
 # Meta API version bump is a one-line env change, not a code change.
 WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 
+# --- Paddle webhook (Jantar SaaS Phase 4 — subscription provisioning) ---
+# Optional, exactly like WHATSAPP_APP_SECRET above: Paddle billing is an
+# opt-in integration (see app/routers/paddle.py), so this is not required
+# at startup and CI never needs a real Paddle credential to run. Left
+# unset, POST /webhooks/paddle simply rejects every request (fail closed
+# — see app/paddle_webhooks.py) rather than the server refusing to start.
+#
+# Your Paddle webhook destination's signing secret (Paddle Dashboard >
+# Developer Tools > Notifications > your webhook destination), used to
+# verify the "Paddle-Signature" header (format "ts=...;h1=...") on every
+# webhook POST — proves a request genuinely came from Paddle before
+# anything in it is trusted or touches the database. This is a
+# SERVER-SIDE-ONLY secret: unlike the Paddle client-side token used in
+# frontend/pricing.html, it must never appear in frontend code or be
+# logged.
+PADDLE_WEBHOOK_SECRET = os.getenv("PADDLE_WEBHOOK_SECRET", "").strip()
+
 # --- Widget CORS (Stage 4 Phase D) ---
 # A single platform-level trusted origin — e.g. wherever the admin
 # dashboard is hosted — always permitted against ANY restaurant's
