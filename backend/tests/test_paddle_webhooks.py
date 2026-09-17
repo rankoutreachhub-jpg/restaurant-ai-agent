@@ -9,11 +9,19 @@ body as raw bytes and send it with content=..., never json=..., so what
 gets signed and what gets sent are guaranteed byte-identical (the same
 reason the WhatsApp webhook tests do this).
 
-Restaurant association: see app/paddle_webhooks.py's module docstring.
-These tests use `second_restaurant`'s id as data.custom_data.restaurant_id
-to exercise the one deterministic linking path that exists today; tests
-proving an UNASSOCIATED event is handled safely deliberately omit any
-custom_data and use a subscription id no existing row is linked to.
+Restaurant association: see app/paddle_webhooks.py's module docstring
+and app/paddle_checkout_tokens.py's. `_subscription_event`/
+`_transaction_completed_event`'s `restaurant_id=` parameter issues a
+REAL signed checkout_token for that restaurant (via
+app.paddle_checkout_tokens.issue_checkout_token, the same function
+POST /admin/restaurant/{id}/checkout-session uses) and puts it in
+data.custom_data.checkout_token — mirroring exactly what a real,
+authorized checkout produces. A bare, unsigned
+data.custom_data.restaurant_id is deliberately never trusted any more
+(see test_bare_unsigned_custom_data_restaurant_id_does_not_resolve
+below, which proves that path is closed); tests proving an
+UNASSOCIATED event is handled safely deliberately omit any custom_data
+and use a subscription id no existing row is linked to.
 """
 
 import hashlib
@@ -22,6 +30,7 @@ import json
 import time
 
 from app import config, models
+from app.paddle_checkout_tokens import issue_checkout_token
 
 WEBHOOK_URL = "/webhooks/paddle"
 
@@ -62,7 +71,7 @@ def _subscription_event(
         "current_billing_period": {"ends_at": current_period_end} if current_period_end else {},
     }
     if restaurant_id is not None:
-        data["custom_data"] = {"restaurant_id": restaurant_id}
+        data["custom_data"] = {"checkout_token": issue_checkout_token(restaurant_id)}
     return {"event_id": event_id, "event_type": event_type, "occurred_at": occurred_at, "data": data}
 
 
@@ -77,7 +86,7 @@ def _transaction_completed_event(
         "items": [{"price": {"id": price_id}}],
     }
     if restaurant_id is not None:
-        data["custom_data"] = {"restaurant_id": restaurant_id}
+        data["custom_data"] = {"checkout_token": issue_checkout_token(restaurant_id)}
     return {"event_id": event_id, "event_type": "transaction.completed", "occurred_at": occurred_at, "data": data}
 
 
@@ -377,3 +386,83 @@ def test_unhandled_event_type_is_logged_and_ignored(client, second_restaurant, d
     assert row.applied is False
     subscription = _get_subscription(db, second_restaurant)
     assert subscription.provider_subscription_id != "sub_unhandled_1"
+
+
+# --- Authenticated checkout association (Jantar SaaS Phase 4.1) ---
+# These close and guard the specific vulnerability the approved plan
+# identified: a bare, unsigned data.custom_data.restaurant_id must
+# never be trusted, ONLY a verified checkout_token (see
+# app/paddle_checkout_tokens.py and app/paddle_webhooks.py's module
+# docstrings).
+
+def test_bare_unsigned_custom_data_restaurant_id_does_not_resolve(client, second_restaurant, db):
+    """The vulnerability this feature closes: a bare, unsigned
+    custom_data.restaurant_id -- exactly what anyone could set by
+    calling Paddle's own Checkout SDK directly with our public client
+    token -- must never be trusted, even though it names a real,
+    existing restaurant."""
+    payload = _subscription_event("evt_bare_restaurant_id_1", subscription_id="sub_bare_1")
+    payload["data"]["custom_data"] = {"restaurant_id": second_restaurant}
+    response = _post(client, payload)
+    assert response.status_code == 200
+
+    subscription = _get_subscription(db, second_restaurant)
+    assert subscription.provider_subscription_id != "sub_bare_1"
+
+    row = _get_webhook_event(db, "evt_bare_restaurant_id_1")
+    assert row.applied is False
+    assert row.restaurant_id is None
+
+
+def test_forged_checkout_token_does_not_resolve(client, second_restaurant, db):
+    token = issue_checkout_token(second_restaurant)
+    payload_b64, _, signature = token.partition(".")
+    forged_token = f"{payload_b64}.{'0' * len(signature)}"
+
+    payload = _subscription_event("evt_forged_token_1", subscription_id="sub_forged_1")
+    payload["data"]["custom_data"] = {"checkout_token": forged_token}
+    response = _post(client, payload)
+    assert response.status_code == 200
+
+    subscription = _get_subscription(db, second_restaurant)
+    assert subscription.provider_subscription_id != "sub_forged_1"
+
+    row = _get_webhook_event(db, "evt_forged_token_1")
+    assert row.applied is False
+    assert row.restaurant_id is None
+
+
+def test_expired_checkout_token_does_not_resolve(client, second_restaurant, db, monkeypatch):
+    from app import paddle_checkout_tokens
+
+    monkeypatch.setattr(paddle_checkout_tokens, "TOKEN_LIFETIME_SECONDS", -3600)
+    expired_token = paddle_checkout_tokens.issue_checkout_token(second_restaurant)
+
+    payload = _subscription_event("evt_expired_token_1", subscription_id="sub_expired_1")
+    payload["data"]["custom_data"] = {"checkout_token": expired_token}
+    response = _post(client, payload)
+    assert response.status_code == 200
+
+    subscription = _get_subscription(db, second_restaurant)
+    assert subscription.provider_subscription_id != "sub_expired_1"
+
+    row = _get_webhook_event(db, "evt_expired_token_1")
+    assert row.applied is False
+    assert row.restaurant_id is None
+
+
+def test_existing_provider_subscription_id_path_still_works_without_a_token(client, second_restaurant, db):
+    """Once a subscription is linked (via a verified token, the first
+    time), LATER lifecycle events for that same Paddle subscription
+    resolve purely via the already-linked provider_subscription_id --
+    no fresh checkout_token is issued or needed for a renewal/update."""
+    _post(client, _subscription_event(
+        "evt_psid_base_1", subscription_id="sub_psid_1", restaurant_id=second_restaurant,
+        price_id=STARTER_PRICE_ID, status="active",
+    ))
+    response = _post(client, _subscription_event(
+        "evt_psid_update_2", event_type="subscription.updated", subscription_id="sub_psid_1",
+        price_id=PRO_PRICE_ID, status="active",
+    ))
+    assert response.status_code == 200
+    assert _get_subscription(db, second_restaurant).plan_code == "pro"

@@ -381,6 +381,18 @@ class SubscriptionAdminUpdate(BaseModel):
     status: Optional[SubscriptionStatus] = None
 
 
+class CheckoutSessionOut(BaseModel):
+    """
+    Response for POST /admin/restaurant/{id}/checkout-session (Jantar
+    SaaS Phase 4.1). checkout_token is opaque to the frontend — it only
+    ever passes it straight through to Paddle as
+    customData.checkout_token (see frontend/admin.html); it never
+    decodes or inspects it. Deliberately exposes nothing else: not the
+    signing secret, not a raw restaurant_id, not any Subscription data.
+    """
+    checkout_token: str
+
+
 # --- WhatsApp number mapping (Stage 3 Step 6B) ---
 # Superadmin-only, platform-admin management of the one-per-restaurant
 # WhatsApp phone_number_id mapping — see app/models.py:WhatsAppNumber.

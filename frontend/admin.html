@@ -11,6 +11,7 @@
 <link rel="icon" type="image/png" sizes="48x48" href="favicon-48x48.png">
 <link rel="icon" type="image/png" sizes="512x512" href="favicon-512x512.png">
 <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+<script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -214,6 +215,21 @@
     font-size: 13px;
     margin-bottom: 14px;
   }
+  .notice-banner {
+    background: #eaf6ec;
+    color: #1e6b32;
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+  .checkout-error {
+    color: #b00020;
+    font-size: 12.5px;
+    margin-top: 8px;
+    display: none;
+  }
+  .checkout-error.visible { display: block; }
   .key-reveal {
     background: #fff8e1;
     border: 1px solid #f0d97a;
@@ -357,8 +373,22 @@
   <div id="app-footer"><a href="privacy-policy.html">Privacy Policy</a> &middot; <a href="terms-of-service.html">Terms of Service</a></div>
 </div>
 
+<script src="/api/paddle-config.js"></script>
 <script>
 "use strict";
+
+// Jantar SaaS Phase 4.1 (authenticated Paddle checkout association) --
+// same runtime-config mechanism as frontend/pricing.html: the live
+// Paddle client-side token is never committed to Git. It's supplied at
+// runtime by /api/paddle-config.js (loaded above), which sets
+// window.PADDLE_CLIENT_TOKEN before this script tag runs -- see that
+// file and frontend/pricing.html for the full explanation. A Paddle
+// client-side token is safe in frontend code by design; it is not a
+// secret API key.
+var PADDLE_CLIENT_TOKEN = window.PADDLE_CLIENT_TOKEN || "";
+if (window.Paddle && PADDLE_CLIENT_TOKEN) {
+  Paddle.Initialize({ token: PADDLE_CLIENT_TOKEN });
+}
 
 // ---------------------------------------------------------------
 // Auth / API helper
@@ -491,7 +521,17 @@ async function enterApp() {
   select.value = currentRestaurantId;
   select.onchange = () => { currentRestaurantId = Number(select.value); loadActiveTab(); };
 
-  setActiveTab("restaurant");
+  // Returning here from a Paddle checkout started by startAdminPaddleCheckout
+  // (see that function's successUrl) -- land on the Subscription tab with
+  // the honest "payment received, updating" notice instead of the default
+  // Restaurant tab, then clear the hash so a manual refresh doesn't repeat it.
+  if (window.location.hash === "#billing-updated") {
+    showBillingUpdatedNotice = true;
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+    setActiveTab("subscription");
+  } else {
+    setActiveTab("restaurant");
+  }
 }
 
 document.getElementById("login-btn").onclick = async () => {
@@ -1150,6 +1190,23 @@ function showWidgetPreview(widgetKey) {
 // provider, checkout, or usage enforcement yet)
 // ---------------------------------------------------------------
 
+// Jantar SaaS Phase 4.1 (authenticated Paddle checkout association).
+// Same three real, live Paddle monthly price ids as frontend/pricing.html
+// (see that file and app/paddle_webhooks.py:PADDLE_PRICE_ID_TO_PLAN_CODE
+// on the backend) -- referenced here only, never created or modified.
+const ADMIN_PADDLE_PRICE_IDS = {
+  starter: "pri_01m2gvtqa1h6ecyq45nt61wkk8",
+  growth: "pri_01m2gw4307t3zt670b86mfzs5d",
+  pro: "pri_01m2gw98h023yskcr1cfw3qhw6"
+};
+const ADMIN_PLAN_DISPLAY = { starter: "Starter — $39/month", growth: "Growth — $79/month", pro: "Pro — $149/month" };
+
+// Set true for exactly one Subscription-tab render right after a Paddle
+// checkout redirects back here (see the #billing-updated hash handling
+// in enterApp() below) -- see startAdminPaddleCheckout's own comment
+// for why this deliberately never claims the plan is ALREADY updated.
+let showBillingUpdatedNotice = false;
+
 async function loadSubscriptionTab() {
   const panel = document.getElementById("panel-subscription");
   if (!currentRestaurantId) { panel.innerHTML = "<p class='muted'>No restaurant selected.</p>"; return; }
@@ -1162,9 +1219,24 @@ async function loadSubscriptionTab() {
     ? new Date(s.current_period_end).toLocaleDateString()
     : "Not set — no billing provider configured yet";
 
+  const noticeHtml = showBillingUpdatedNotice
+    ? `<div class="notice-banner">Payment received. Your plan is being updated — this usually takes just a few seconds.
+       The plan and status below always reflect the latest confirmed state; refresh in a few seconds if it hasn't
+       changed yet.</div>`
+    : "";
+  showBillingUpdatedNotice = false;
+
+  const upgradeButtonsHtml = Object.keys(ADMIN_PADDLE_PRICE_IDS).map(planKey => {
+    const isCurrent = planKey === s.plan_code;
+    return isCurrent
+      ? `<button disabled>${escapeHtml(ADMIN_PLAN_DISPLAY[planKey])} — Current plan</button>`
+      : `<button onclick="startAdminPaddleCheckout('${planKey}')">Switch to ${escapeHtml(ADMIN_PLAN_DISPLAY[planKey])}</button>`;
+  }).join(" ");
+
   panel.innerHTML = `
     <div class="card">
       <h2>Subscription</h2>
+      ${noticeHtml}
       <p><strong>Plan:</strong> ${escapeHtml(s.plan_name)} (${escapeHtml(s.plan_code)}) — $${s.limits.monthly_price_usd}/month</p>
       <p><strong>Status:</strong> ${escapeHtml(s.status)}</p>
       <p><strong>Current period ends:</strong> ${escapeHtml(periodEnd)}</p>
@@ -1180,8 +1252,65 @@ async function loadSubscriptionTab() {
         <li>Widget branding: ${escapeHtml(s.limits.custom_widget_branding)}</li>
       </ul>
 
-      <button disabled title="Payment provider integration is not available yet">Manage billing — Coming soon</button>
+      <h3>Manage billing</h3>
+      <p>${upgradeButtonsHtml}</p>
+      <p class="checkout-error" id="subscription-checkout-error">
+        Checkout couldn't load just now. Please try again, or email us at
+        <a href="mailto:rankoutreachhub@gmail.com">rankoutreachhub@gmail.com</a>.
+      </p>
     </div>`;
+}
+
+async function startAdminPaddleCheckout(planKey) {
+  const errorEl = document.getElementById("subscription-checkout-error");
+  if (errorEl) errorEl.classList.remove("visible");
+
+  if (!window.Paddle || typeof Paddle.Checkout === "undefined" || !PADDLE_CLIENT_TOKEN) {
+    // Same graceful-fallback stance as frontend/pricing.html -- an
+    // ad-blocker/privacy extension blocking paddle.js, the network
+    // request for it failing, or the runtime config endpoint not
+    // having supplied a live token yet, must fail visibly, never
+    // silently.
+    if (errorEl) errorEl.classList.add("visible");
+    return;
+  }
+
+  // Authenticated + restaurant-scoped: the backend's require_restaurant_access
+  // check on this call is the actual authorization boundary -- see
+  // app/routers/admin.py:create_checkout_session. This response's
+  // checkout_token is opaque here; it is only ever handed straight to
+  // Paddle below, never decoded or inspected client-side.
+  let response;
+  try {
+    response = await api(`/admin/restaurant/${currentRestaurantId}/checkout-session`, { method: "POST" });
+  } catch (e) {
+    if (errorEl) errorEl.classList.add("visible");
+    return;
+  }
+  if (!response.ok) { showGlobalError(await describeError(response, "Could not start checkout.")); return; }
+  const { checkout_token } = await response.json();
+
+  // customData carries ONLY the signed, opaque checkout_token -- NEVER a
+  // raw restaurant_id, which a tampered/modified browser request could
+  // otherwise substitute for a different restaurant's id. See
+  // app/paddle_checkout_tokens.py and app/paddle_webhooks.py for how the
+  // webhook verifies this token before trusting the restaurant_id
+  // embedded inside it.
+  Paddle.Checkout.open({
+    items: [{ priceId: ADMIN_PADDLE_PRICE_IDS[planKey], quantity: 1 }],
+    customData: { checkout_token: checkout_token },
+    settings: {
+      displayMode: "overlay",
+      // Back into this same admin dashboard, not the public
+      // checkout-success.html (that page's "no automated provisioning"
+      // copy would be actively WRONG for this flow, where provisioning
+      // IS automated, just not synchronous with this redirect -- see
+      // the #billing-updated handling in enterApp() below, and
+      // loadSubscriptionTab's noticeHtml above, for the actual honest
+      // "payment received, updating" wording shown instead).
+      successUrl: window.location.origin + window.location.pathname + "#billing-updated"
+    }
+  });
 }
 
 // ---------------------------------------------------------------

@@ -31,6 +31,12 @@ os.environ.setdefault("WHATSAPP_ACCESS_TOKEN", "test-whatsapp-access-token-not-r
 # tests/test_paddle_webhooks.py).
 os.environ.setdefault("PADDLE_WEBHOOK_SECRET", "test-paddle-webhook-secret-not-real")
 
+# Same pattern again, for this platform's OWN checkout-authorization
+# token signing secret (see app/paddle_checkout_tokens.py) — a SEPARATE
+# fixed test value from PADDLE_WEBHOOK_SECRET above, mirroring how the
+# two are kept separate in real deployments too.
+os.environ.setdefault("PADDLE_CHECKOUT_TOKEN_SECRET", "test-paddle-checkout-token-secret-not-real")
+
 _db_fd, _db_path = tempfile.mkstemp(suffix=".db")
 os.close(_db_fd)
 os.environ["DATABASE_URL"] = f"sqlite:///{_db_path}"

@@ -5,35 +5,43 @@ POST /webhooks/paddle endpoint that calls into this module, and
 app/models.py:PaddleWebhookEvent/Subscription/SubscriptionEvent for the
 underlying schema).
 
-THE RESTAURANT-ASSOCIATION GAP (read this before changing resolution
+THE RESTAURANT-ASSOCIATION MODEL (read this before changing resolution
 logic below):
-This codebase has no customer-account model and no self-signup flow —
-a Paddle checkout happens from the public, unauthenticated
-frontend/pricing.html, which does not (and, deliberately, must not)
-send any customData identifying a restaurant, since a visitor there
-has no session with any existing restaurant yet. That means a webhook
-notification for a BRAND NEW Paddle subscription has no deterministic
-way to be linked to one of this platform's existing restaurants — an
-email-address match would be a GUESS (the checkout email need not match
-a restaurant's own contact email), and this module deliberately never
-guesses. See _resolve_restaurant_id below for the only two links it
-will ever trust:
+This codebase has no customer-account model and no self-signup flow, so
+a webhook notification has no INHERENTLY reliable way to name which
+restaurant (if any) it belongs to — an email-address match would be a
+GUESS (the checkout email need not match a restaurant's own contact
+email), and this module deliberately never guesses. See
+_resolve_restaurant_id below for the only two links it will ever trust:
   1. This Paddle subscription id is already linked to a restaurant's
      Subscription row (a later lifecycle event for a subscription this
-     module itself linked before).
-  2. The notification's data.custom_data.restaurant_id names an
-     existing restaurant (an EXACT id match against this database) —
-     inert today (nothing sets custom_data yet), but present so a
-     future phase can start passing it — e.g. once checkout happens
-     from an authenticated admin context — without another webhook
-     rewrite.
-Anything else is durably logged (PaddleWebhookEvent, restaurant_id=NULL)
-and otherwise ignored: no restaurant is guessed, no account or
-restaurant is auto-created. This is a deliberate product decision, not
-an oversight — closing it is future work (see the module docstring
-above) requiring either an authenticated pre-checkout step that sets
-custom_data, or a separate reconciliation UI for a superadmin to link an
-unassociated Paddle customer to a restaurant by hand.
+     module itself linked before via link #2, at some earlier point).
+  2. The notification's data.custom_data.checkout_token verifies (see
+     app/paddle_checkout_tokens.py:verify_checkout_token) — a short-
+     lived token this platform's OWN backend issued via
+     POST /admin/restaurant/{id}/checkout-session, only after the
+     requesting admin had already passed the existing admin
+     authentication AND restaurant-scoping checks
+     (get_current_admin + require_restaurant_access). Only once the
+     signature and expiry check out is the restaurant_id EMBEDDED
+     INSIDE the verified token trusted.
+A bare, unsigned data.custom_data.restaurant_id is deliberately NEVER
+trusted, on its own, under any circumstance — a Paddle client-side
+token is public by design (see frontend/pricing.html), so nothing stops
+anyone from calling Paddle's own Checkout SDK directly with our public
+token and an arbitrary, attacker-chosen custom_data; trusting an
+unsigned restaurant_id straight out of that would let anyone activate
+or modify ANY restaurant's subscription by guessing its (small,
+sequential) id. This was flagged and closed as part of the approved
+authenticated-checkout-association plan — see
+app/paddle_checkout_tokens.py's own docstring for the full reasoning.
+Anything that resolves to neither link above is durably logged
+(PaddleWebhookEvent, restaurant_id=NULL) and otherwise ignored: no
+restaurant is guessed, no account or restaurant is auto-created. This
+correctly covers a checkout started from the still-public, still-
+unauthenticated frontend/pricing.html (see that page — it never sends
+any custom_data at all), which is expected to remain unassociated and
+reconciled manually, exactly as before this module gained link #2.
 
 IDEMPOTENCY AND ORDERING:
 Every notification Paddle delivers carries a unique event_id — Paddle
@@ -58,6 +66,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from . import config, models
+from .paddle_checkout_tokens import verify_checkout_token
 from .plans import PlanCode
 
 logger = logging.getLogger(__name__)
@@ -182,8 +191,9 @@ def _resolve_restaurant_id(db: Session, data: dict, provider_subscription_id: Op
     """
     The ONLY two deterministic links this module ever trusts — see this
     module's docstring for why an email or name match is never
-    attempted. Returns None (never guesses, never creates a restaurant)
-    when neither applies.
+    attempted, and why a bare custom_data.restaurant_id is never one of
+    them. Returns None (never guesses, never creates a restaurant) when
+    neither applies.
     """
     if provider_subscription_id:
         existing = (
@@ -195,12 +205,12 @@ def _resolve_restaurant_id(db: Session, data: dict, provider_subscription_id: Op
             return existing.restaurant_id
 
     custom_data = data.get("custom_data") or {}
-    raw_restaurant_id = custom_data.get("restaurant_id")
-    if raw_restaurant_id is None:
+    checkout_token = custom_data.get("checkout_token")
+    if not checkout_token or not isinstance(checkout_token, str):
         return None
-    try:
-        restaurant_id = int(raw_restaurant_id)
-    except (TypeError, ValueError):
+
+    restaurant_id = verify_checkout_token(checkout_token)
+    if restaurant_id is None:
         return None
 
     restaurant = db.query(models.Restaurant).filter(models.Restaurant.id == restaurant_id).first()

@@ -8,6 +8,7 @@ from ..database import get_db
 from .. import models, schemas
 from ..auth import AdminIdentity, get_current_admin
 from ..authz import require_restaurant_access
+from ..paddle_checkout_tokens import issue_checkout_token
 from ..plans import PLAN_LIMITS
 from ..rate_limit import admin_rate_limiter
 from ..subscriptions import current_period_conversation_count
@@ -718,6 +719,40 @@ def get_restaurant_subscription(
             custom_widget_branding=plan["custom_widget_branding"],
         ),
     )
+
+
+@router.post(
+    "/restaurant/{restaurant_id}/checkout-session",
+    response_model=schemas.CheckoutSessionOut,
+)
+def create_checkout_session(
+    restaurant_id: int,
+    db: Session = Depends(get_db),
+    current_admin: AdminIdentity = Depends(get_current_admin),
+):
+    """
+    Jantar SaaS Phase 4.1 (authenticated Paddle checkout association —
+    see app/paddle_checkout_tokens.py's docstring for the full security
+    rationale this closes a gap in). Issues a short-lived, signed
+    checkout_token binding THIS restaurant_id, for the frontend to pass
+    to Paddle as customData.checkout_token when starting a checkout for
+    an upgrade/plan change — never a raw restaurant_id, which a browser
+    could otherwise tamper with.
+
+    require_restaurant_access is the ENTIRE authorization check here: a
+    superadmin may request a session for any restaurant; a
+    restaurant-scoped admin only for one they are actually granted
+    (the same uniform 404 — never a 403 — as every other restaurant-
+    scoped admin route, for the reasons app/authz.py documents). No
+    Subscription row is read, created, or modified by this endpoint —
+    it only issues a token; app/paddle_webhooks.py is the only place a
+    Subscription is ever actually changed, once Paddle's webhook
+    confirms the payment and echoes this token back.
+    """
+    require_restaurant_access(restaurant_id, db, current_admin)
+
+    token = issue_checkout_token(restaurant_id)
+    return schemas.CheckoutSessionOut(checkout_token=token)
 
     logger.info("Widget allowed origin removed (restaurant_id=%s)", restaurant_id)
     return {"message": "Allowed origin removed", "origin_id": origin_id}

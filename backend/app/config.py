@@ -167,6 +167,22 @@ WHATSAPP_API_VERSION = os.getenv("WHATSAPP_API_VERSION", "v21.0").strip()
 # logged.
 PADDLE_WEBHOOK_SECRET = os.getenv("PADDLE_WEBHOOK_SECRET", "").strip()
 
+# Signing secret for this platform's OWN short-lived checkout-authorization
+# tokens (see app/paddle_checkout_tokens.py) — issued by
+# POST /admin/restaurant/{id}/checkout-session and verified by
+# app/paddle_webhooks.py before a webhook's custom_data.checkout_token is
+# ever trusted to name a restaurant_id. Deliberately a SEPARATE secret
+# from PADDLE_WEBHOOK_SECRET above, not a reuse of it: that one proves a
+# request genuinely came from Paddle; this one proves a restaurant_id was
+# genuinely authorized by OUR OWN backend for an authenticated admin —
+# two different trust boundaries. Reusing one key for both would mean a
+# Paddle-side rotation of their secret silently invalidates in-flight
+# checkout tokens too, and a leak of either secret would compromise both
+# guarantees at once. Optional, same fail-closed stance as
+# PADDLE_WEBHOOK_SECRET: left unset, app/paddle_checkout_tokens.py simply
+# never issues or verifies a valid token, so nothing trusts a forged one.
+PADDLE_CHECKOUT_TOKEN_SECRET = os.getenv("PADDLE_CHECKOUT_TOKEN_SECRET", "").strip()
+
 # --- Widget CORS (Stage 4 Phase D) ---
 # A single platform-level trusted origin — e.g. wherever the admin
 # dashboard is hosted — always permitted against ANY restaurant's
