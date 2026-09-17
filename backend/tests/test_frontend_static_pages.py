@@ -507,9 +507,18 @@ def test_homepage_has_no_fabricated_claims_or_social_proof():
         assert forbidden not in content
 
 
-def test_homepage_has_no_payment_provider_or_fake_checkout():
+def test_homepage_has_no_other_payment_provider_or_fake_card_collection():
+    """
+    Paddle is now the live, real payment provider (see the pricing-page
+    Paddle tests in this file) and the homepage legitimately points its
+    "Get started" CTA at pricing.html -- "paddle" is no longer banned
+    here. No OTHER payment-provider name may appear, and this page must
+    never itself collect a raw card number (Paddle's overlay collects
+    payment details off-page on pricing.html, never in the homepage's
+    own HTML/JS, which doesn't embed a checkout at all).
+    """
     content = _read("index.html").lower()
-    for forbidden in ("stripe", "paddle", "lemon squeezy", "lemonsqueezy", "card number", "credit card"):
+    for forbidden in ("stripe", "lemon squeezy", "lemonsqueezy", "card number", "credit card"):
         assert forbidden not in content
     assert "<form" not in content
 
